@@ -24,6 +24,17 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
+/* Ordered list of threads (by soones wakeup_at_ticks) currently sleeping. */
+static struct list sleeping_threads;
+static bool order_by_wakeup_at_ticks (const struct list_elem *a,
+                                      const struct list_elem *b,
+                                      void *aux) {
+  struct thread *ae = list_entry(a, struct thread, sleepelem);
+  struct thread *be = list_entry(b, struct thread, sleepelem);
+
+  return ae->wakeup_at_ticks < be->wakeup_at_ticks;
+}
+
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
@@ -35,6 +46,8 @@ static void real_time_delay (int64_t num, int32_t denom);
 void
 timer_init (void)
 {
+  list_init (&sleeping_threads);
+
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -84,16 +97,16 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
-/* Sleeps for approximately TICKS timer ticks.  Interrupts must
-   be turned on. */
+/* Sleeps for approximately TICKS timer ticks. */
 void
 timer_sleep (int64_t ticks)
 {
-  int64_t start = timer_ticks ();
-
-  ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks)
-    thread_yield ();
+  enum intr_level old_level = intr_disable ();
+  struct thread* current = thread_current ();
+  current->wakeup_at_ticks = timer_ticks () + ticks;
+  list_insert_ordered (&sleeping_threads, &current->sleepelem, order_by_wakeup_at_ticks, NULL);
+  thread_block ();
+  intr_set_level (old_level);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -171,6 +184,17 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
+
+  while (!list_empty (&sleeping_threads)) {
+    struct thread *thread = list_entry (list_front (&sleeping_threads), struct thread, sleepelem);
+    if (thread->wakeup_at_ticks <= ticks) {
+      list_pop_front (&sleeping_threads);
+      thread_unblock (thread);
+    } else {
+      break;
+    }
+  }
+
   thread_tick ();
 }
 

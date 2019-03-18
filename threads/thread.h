@@ -94,6 +94,10 @@ struct thread
     /* Shared between thread.c and synch.c */
     struct list_elem elem;              /* List element. */
 
+    /* Used by timer.h */
+    struct list_elem sleepelem;         /* List element. */
+    int64_t wakeup_at_ticks;            /* Ticks since OS startup the thread should be resumed. */
+
 #ifdef USERPROG
     /* Owned by userprog/process.c */
     struct process* process;            /* Process Structure */
