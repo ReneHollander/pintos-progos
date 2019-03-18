@@ -8,18 +8,18 @@
 
 >> Fill in the names and email addresses of your group members.
 
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
+Rene Hollander <rene.hollander@tuwien.ac.at>
 
 ---- PRELIMINARIES ----
 
 >> If you have any preliminary comments on your submission, notes for the
 >> TAs, or extra credit, please give them here.
+None.
 
 >> Please cite any offline or online sources you consulted while
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course staff.
+None.
 
 			     ALARM CLOCK
 			     ===========
@@ -30,26 +30,73 @@ FirstName LastName <email@domain.example>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+thread.h:
+struct thread
+  {
+
+    ...
+
+    /* Used by timer.h */
+    struct list_elem sleepelem;         /* List element. */
+    int64_t wakeup_at_ticks;            /* Ticks since OS startup the thread should be resumed. */
+
+    ...
+
+  };
+Used by timer.c to keep track of all sleeping threads and when they should wake up.
+
+timer.c:
+/* Ordered list of threads currently sleeping. */
+static struct list sleeping_threads;
+static bool order_by_wakeup_at_ticks (const struct list_elem *a,
+                                      const struct list_elem *b,
+                                      void *aux) {
+  struct thread *ae = list_entry(a, struct thread, sleepelem);
+  struct thread *be = list_entry(b, struct thread, sleepelem);
+
+  return ae->wakeup_at_ticks < be->wakeup_at_ticks;
+}
+Ordered list sorted by wakeup_at_ticks of all sleeping threads. Threads will be
+added to the list by timer_sleep() and removed by timer_interrupt().
+
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe what happens in a call to timer_sleep(),
 >> including the effects of the timer interrupt handler.
+A call to timer_sleep will first calculate the time of when the thread should
+be resumed by adding the supplied ticks to the current ticks since system start.
+The threads wakeup_at_ticks will be set accordingly and then added to the list
+of sleeping_threads ordered by the wakeup time. The thread will then set to blocked
+state.
 
 >> A3: What steps are taken to minimize the amount of time spent in
 >> the timer interrupt handler?
+The handler only needs to check the first sleeping thread in the linked list,
+because it is sorted from soones wakeup time to latest wakeup time. Further
+optimization could also be done by writing the soonest wakeup time into a
+global variable (probably less memory access due to the linked list
+implementation. This won't be done for the sake of readability.
 
 ---- SYNCHRONIZATION ----
 
 >> A4: How are race conditions avoided when multiple threads call
 >> timer_sleep() simultaneously?
+When accessing the list of sleeping threads a lock will be acquired.
 
 >> A5: How are race conditions avoided when a timer interrupt occurs
 >> during a call to timer_sleep()?
+The interrupt will check if a lock is held. If it is, it won't try
+to wake up a thread and skip it.
 
 ---- RATIONALE ----
 
 >> A6: Why did you choose this design?  In what ways is it superior to
 >> another design you considered?
+Another approach would be to handle the wake up in the scheduler. Every
+time the scheduler runs, it would do the work that is occuring in the
+timer interrupt handler. But I think not interfering too much with the
+scheduler is easier and allows me to use the existing block and unblock
+method without causing issues.
 
 			   ARGUMENT PASSING
 			   ================
@@ -60,20 +107,47 @@ FirstName LastName <email@domain.example>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+process.h:
+struct start_aux_data {
+  ...
+  char **args;
+  ...
+};
+A new field in the start_aux_data will hold the arguments that are going
+to be passed to the process.
+
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe how you implemented argument parsing.  How do
 >> you arrange for the elements of argv[] to be in the right order?
 >> How do you avoid overflowing the stack page?
+The arguments will be parsed in process_execute and filled into
+start_aux_data. strtok_r will be used to tokenize by space.
+The arrangement of the arguments on the stack will follow the guidelines
+mentioned in chapter 2.5.1 'Program Startup Details'. The arguments will
+be put on the stack problably in the order they were supplied in the
+start_aux_data struct. Then from right to left the pointers will be pushed
+on the stack with a null pointer marking the end of the vector. Lastly the
+address of the first item will be pushed and then the argument count will
+be pushed on the stack and the process executed.
+The avoid overflowing the size of memory needed will be calculated and
+checked with the stackpointer to see if it fits in remainder of the page.
 
 ---- RATIONALE ----
 
 >> A3: Why does Pintos implement strtok_r() but not strtok()?
+strtok_r is reentrant while strtok is not. strtok is using
+strtok_r internally, but keeping state in some global variable.
+As we are allowed to use the standard library while in kernel code,
+minimizing state that could get mixed up by interrupts is helpful.
 
 >> A4: In Pintos, the kernel separates commands into a executable name
 >> and arguments.  In Unix-like systems, the shell does this
 >> separation.  Identify at least two advantages of the Unix approach.
-
+Parsing the arguments seems simple, but if you also need to consider
+escaping of special characters, expanding wildcards, filling in variables
+set in the context of the shell, it is not as straigt forward anymore.
+Also, less code in the kernel means less bugs in the kernel.
 
 
 			   SURVEY QUESTIONS
