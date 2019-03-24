@@ -28,7 +28,7 @@ static unsigned loops_per_tick;
 static struct list sleeping_threads;
 static bool order_by_wakeup_at_ticks (const struct list_elem *a,
                                       const struct list_elem *b,
-                                      void *aux) {
+                                      void *aux UNUSED) {
   struct thread *ae = list_entry(a, struct thread, sleepelem);
   struct thread *be = list_entry(b, struct thread, sleepelem);
 
@@ -101,9 +101,9 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks)
 {
-  enum intr_level old_level = intr_disable ();
   struct thread* current = thread_current ();
   current->wakeup_at_ticks = timer_ticks () + ticks;
+  enum intr_level old_level = intr_disable ();
   list_insert_ordered (&sleeping_threads, &current->sleepelem, order_by_wakeup_at_ticks, NULL);
   thread_block ();
   intr_set_level (old_level);
