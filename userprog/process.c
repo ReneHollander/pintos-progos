@@ -87,6 +87,7 @@ process_execute (const char *command)
 
   strlcpy(command_cpy, command, PGSIZE);
 
+  // parses the command string and splits by space.
   arg_data->command_size = 0;
   char *token, *save_ptr = NULL;
   for (token = strtok_r (command_cpy, " ", &save_ptr); token != NULL; token = strtok_r (NULL, " ", &save_ptr)) {
@@ -613,6 +614,12 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool
 setup_stack (struct start_arg_data *arg_data UNUSED, void **esp)
 {
+
+// pointer to the end of the page.
+#define KPAGE_END (kpage + PGSIZE)
+// calculates the address in the user program address space from a pointer pointing to a kpage
+#define CALCULATE_VIRTUAL_ADDRESS(ptr) ((uint32_t) (PHYS_BASE) - (((uint32_t) KPAGE_END) - (uint32_t) (ptr)))
+
   uint8_t *kpage = NULL;
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
@@ -624,35 +631,41 @@ setup_stack (struct start_arg_data *arg_data UNUSED, void **esp)
       return false;
   }
 
-  memcpy(kpage + PGSIZE - arg_data->command_size, arg_data->args, arg_data->command_size);
+  // move arguments seperated by NULL terminators to end of page (i.e start of the stack).
+  memcpy(KPAGE_END - arg_data->command_size, arg_data->args, arg_data->command_size);
 
-  uint8_t *ptr2 = kpage + PGSIZE - arg_data->command_size - 4;
-  ptr2 -= ((uint32_t) ptr2) % 4;
+  // calculate the padded pointer that points to the first free address after the arguments.
+  uint8_t *ptr = KPAGE_END - arg_data->command_size - 4;
+  ptr -= ((uint32_t) ptr) % 4;
+  uint32_t *stack_ptr = (uint32_t *) ptr;
 
-  uint32_t *argv = (uint32_t *) ptr2;
+  // set the last element of argv NULL.
+  *stack_ptr = 0;
+  stack_ptr--;
 
-  *argv = 0;
-  argv--;
-
-  uint8_t *ptr;
-  for (ptr = kpage + PGSIZE - 2; ptr >= kpage + PGSIZE - arg_data->command_size; ptr--) {
-    if (*ptr == 0) {
-      *argv = (uint32_t) (PHYS_BASE) - ((uint32_t) (kpage + PGSIZE) - (uint32_t) (ptr + 1));
-      argv--;
+  // loop through the arguments from last to first (detected by NULL terminators).
+  uint8_t *arg_ptr;
+  for (arg_ptr = KPAGE_END - 2; arg_ptr >= KPAGE_END - arg_data->command_size; arg_ptr--) {
+    if (*arg_ptr == 0) {
+      // start of argument found, push it to stack
+      *stack_ptr = CALCULATE_VIRTUAL_ADDRESS(arg_ptr + 1);
+      stack_ptr--;
     }
   }
-  *argv = (uint32_t) (PHYS_BASE) - ((uint32_t) (kpage + PGSIZE) - (uint32_t) (ptr + 1));
-  argv--;
+  // push the last pointer on stack.
+  *stack_ptr = CALCULATE_VIRTUAL_ADDRESS(arg_ptr + 1);
+  stack_ptr--;
 
-  *argv = (uint32_t) (PHYS_BASE) - ((uint32_t) (kpage + PGSIZE) - (uint32_t) (argv + 1));
-  argv--;
-  *argv = arg_data->argc;
-  argv--;
-  *argv = 0;
+  // push pointer to start of argv onto stack.
+  *stack_ptr = CALCULATE_VIRTUAL_ADDRESS(stack_ptr + 1);
+  stack_ptr--;
 
-//  hex_dump(0, kpage, PGSIZE, true);
+  // push argc onto stack.
+  *stack_ptr = arg_data->argc;
+  stack_ptr--;
 
-  *esp = (void *) ((uint32_t) (PHYS_BASE) - ((uint32_t) (kpage + PGSIZE) - (uint32_t) (argv)));
+  // position stack pointer after argc.
+  *esp = (void *) CALCULATE_VIRTUAL_ADDRESS(stack_ptr);
 
   return true;
 }
