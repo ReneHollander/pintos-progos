@@ -77,9 +77,7 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0)
     {
-      // TODO can the list sorting become inconsistent at any point?
-      list_insert_ordered (&sema->waiters, &thread_current ()->elem, order_by_effective_priority, NULL);
-      // TODO donate before block
+      list_push_back (&sema->waiters, &thread_current ()->elem);
       thread_block ();
     }
   sema->value--;
@@ -209,7 +207,23 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  sema_down (&lock->semaphore);
+  enum intr_level old_level;
+
+  // check if the current lock is acquired by a different thread
+  bool acquired = sema_try_down (&lock->semaphore);
+
+  old_level = intr_disable ();
+  if (!acquired) {
+      list_insert_ordered (&lock->semaphore.waiters, &thread_current ()->elem, order_by_effective_priority, NULL);
+
+      // donate current thread's priority to the lock holder
+      thread_donate_priority(lock);
+
+      thread_block ();
+  }
+  intr_set_level (old_level);
+
+  // once we are not blocking anymore set self as lock holder
   lock->holder = thread_current ();
 }
 

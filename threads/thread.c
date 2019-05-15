@@ -20,6 +20,16 @@
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
 
+#define max(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
+
+#define min(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a < _b ? _a : _b; })
+
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
@@ -198,12 +208,12 @@ thread_create (const char *name, int priority,
   tid = t->tid = allocate_tid ();
 
   /* Create and initialize priority donations stack. */
-  struct stack *priority_donations = palloc_get_page (PAL_ZERO);
-  if (priority_donations == NULL)
-    return TID_ERROR;
-  stack_init(priority_donations);
-  t->priority_donations = priority_donations;
-  ASSERT (sizeof(struct stack) <= PGSIZE);
+//  struct stack *priority_donations = palloc_get_page (PAL_ZERO);
+//  if (priority_donations == NULL)
+//    return TID_ERROR;
+//  stack_init(priority_donations);
+//  t->priority_donations = priority_donations;
+//  ASSERT (sizeof(struct stack) <= PGSIZE);
 
   /* Prepare thread for first run by initializing its stack.
      Do this atomically so intermediate values for the 'stack'
@@ -490,6 +500,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->magic = THREAD_MAGIC;
   t->priority = priority;
+  t->effective_priority = priority;
   list_push_back (&all_list, &t->allelem);
 #ifdef USERPROG
   list_init(&t->children);
@@ -567,6 +578,30 @@ thread_schedule_tail (struct thread *prev)
       ASSERT (prev != cur);
       palloc_free_page (prev);
     }
+}
+
+void
+thread_donate_priority (struct lock *lock) {
+  struct donation *donation = palloc_get_page(PAL_ZERO);
+  ASSERT(donation != NULL);
+
+  donation->lock = lock;
+
+  enum intr_level old_level;
+  old_level = intr_disable();
+
+  int rel_priority = max(lock->holder->effective_priority - thread_current()->effective_priority, 0);
+  donation->relative_priority = rel_priority;
+  list_push_back(&lock->holder->priority_donations, &donation->elem);
+
+  lock->holder->effective_priority = lock->holder->effective_priority + rel_priority;
+
+  // If thread is ready, make sure he gets scheduled next.
+  if (lock->holder->status == THREAD_READY) {
+    list_remove(&lock->holder->elem);
+    list_insert_ordered (&ready_list, &lock->holder->elem, order_by_effective_priority, NULL);
+  }
+  intr_set_level(old_level);
 }
 
 /* Schedules a new process.  At entry, interrupts must be off and
