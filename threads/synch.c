@@ -217,7 +217,7 @@ lock_acquire (struct lock *lock)
       list_insert_ordered (&lock->semaphore.waiters, &thread_current ()->elem, order_by_effective_priority, NULL);
 
       // donate current thread's priority to the lock holder
-      thread_donate_priority(lock);
+//      thread_donate_priority(lock);
 
       thread_block ();
   }
@@ -257,6 +257,20 @@ lock_release (struct lock *lock)
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
+
+  struct list_elem *e;
+
+  for (e = list_begin (&lock->holder->priority_donations); e != list_end (&lock->holder->priority_donations);)
+  {
+      struct donation *donation = list_entry (e, struct donation, elem);
+
+      if (donation->lock == lock) {
+          lock->holder->effective_priority -= donation->relative_priority;
+          e = list_remove (e);
+      } else {
+          e = list_next (e);
+      }
+  }
 
   lock->holder = NULL;
   sema_up (&lock->semaphore);

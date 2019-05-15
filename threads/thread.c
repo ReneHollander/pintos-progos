@@ -374,7 +374,8 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority)
 {
-  thread_current ()->priority = new_priority;
+  int diff = thread_current()->priority - new_priority;
+  thread_current ()->priority += diff;
 }
 
 /* Returns the current thread's priority. */
@@ -502,6 +503,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->effective_priority = priority;
   list_push_back (&all_list, &t->allelem);
+  list_init (&t->priority_donations);
 #ifdef USERPROG
   list_init(&t->children);
 #endif
