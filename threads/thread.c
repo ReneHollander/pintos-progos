@@ -71,6 +71,15 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+static bool order_by_effective_priority (const struct list_elem *a,
+                                         const struct list_elem *b,
+                                         void *aux UNUSED) {
+  struct thread *ae = list_entry(a, struct thread, sleepelem);
+  struct thread *be = list_entry(b, struct thread, sleepelem);
+
+  return ae->effective_priority > be->effective_priority;
+}
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -257,7 +266,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  list_insert_ordered (&ready_list, &t->elem, order_by_effective_priority, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -328,7 +337,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread)
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered (&ready_list, &cur->elem, order_by_effective_priority, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);

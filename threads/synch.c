@@ -79,6 +79,7 @@ sema_down (struct semaphore *sema)
     {
       // TODO can the list sorting become inconsistent at any point?
       list_insert_ordered (&sema->waiters, &thread_current ()->elem, order_by_effective_priority, NULL);
+      // TODO donate before block
       thread_block ();
     }
   sema->value--;
