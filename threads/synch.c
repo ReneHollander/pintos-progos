@@ -32,13 +32,18 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
-static bool order_by_effective_priority (const struct list_elem *a,
+#define max(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
+
+static bool order_thread_by_effective_priority (const struct list_elem *a,
                                       const struct list_elem *b,
                                       void *aux UNUSED) {
-  struct thread *ae = list_entry(a, struct thread, sleepelem);
-  struct thread *be = list_entry(b, struct thread, sleepelem);
+  struct thread *ae = list_entry(a, struct thread, elem);
+  struct thread *be = list_entry(b, struct thread, elem);
 
-  return ae->effective_priority > be->effective_priority;
+  return ae->priority > be->priority;
 }
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
@@ -212,19 +217,26 @@ lock_acquire (struct lock *lock)
   // check if the current lock is acquired by a different thread
   bool acquired = sema_try_down (&lock->semaphore);
 
+  struct thread *current = thread_current ();
+
   old_level = intr_disable ();
   if (!acquired) {
-      list_insert_ordered (&lock->semaphore.waiters, &thread_current ()->elem, order_by_effective_priority, NULL);
-
+      current->lock_waiting = lock;
+      list_insert_ordered(&lock->semaphore.waiters, &current->elem, order_thread_by_effective_priority, NULL);
       // donate current thread's priority to the lock holder
-//      thread_donate_priority(lock);
+      intr_set_level (old_level);
 
+      thread_donate_priority(lock);
+
+      old_level = intr_disable ();
       thread_block ();
   }
-  intr_set_level (old_level);
 
   // once we are not blocking anymore set self as lock holder
-  lock->holder = thread_current ();
+  current->lock_waiting=NULL;
+  lock->holder = current;
+
+  intr_set_level (old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -265,8 +277,13 @@ lock_release (struct lock *lock)
       struct donation *donation = list_entry (e, struct donation, elem);
 
       if (donation->lock == lock) {
-          lock->holder->effective_priority -= donation->relative_priority;
           e = list_remove (e);
+          if (!list_empty (&lock->holder->priority_donations)) {
+            struct donation *max_donation = list_entry (list_front (&lock->holder->priority_donations), struct donation, elem);
+            lock->holder->priority = max (max_donation->priority, lock->holder->base_priority);
+          } else {
+            lock->holder->priority = lock->holder->base_priority; 
+          }
       } else {
           e = list_next (e);
       }

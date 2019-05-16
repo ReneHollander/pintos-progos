@@ -25,11 +25,6 @@
        __typeof__ (b) _b = (b); \
      _a > _b ? _a : _b; })
 
-#define min(a,b) \
-   ({ __typeof__ (a) _a = (a); \
-       __typeof__ (b) _b = (b); \
-     _a < _b ? _a : _b; })
-
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
@@ -81,13 +76,22 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
-static bool order_by_effective_priority (const struct list_elem *a,
-                                         const struct list_elem *b,
-                                         void *aux UNUSED) {
-  struct thread *ae = list_entry(a, struct thread, sleepelem);
-  struct thread *be = list_entry(b, struct thread, sleepelem);
+static bool order_thread_by_effective_priority(const struct list_elem *a,
+                                               const struct list_elem *b,
+                                               void *aux UNUSED) {
+  struct thread *ae = list_entry(a, struct thread, elem);
+  struct thread *be = list_entry(b, struct thread, elem);
 
-  return ae->effective_priority > be->effective_priority;
+  return ae->priority > be->priority;
+}
+
+static bool order_donation_by_priority(const struct list_elem *a,
+                                       const struct list_elem *b,
+                                       void *aux UNUSED) {
+  struct donation *d1 = list_entry(a, struct donation, elem);
+  struct donation *d2 = list_entry(b, struct donation, elem);
+
+  return d1->priority > d2->priority;
 }
 
 /* Initializes the threading system by transforming the code
@@ -207,14 +211,6 @@ thread_create (const char *name, int priority,
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
 
-  /* Create and initialize priority donations stack. */
-//  struct stack *priority_donations = palloc_get_page (PAL_ZERO);
-//  if (priority_donations == NULL)
-//    return TID_ERROR;
-//  stack_init(priority_donations);
-//  t->priority_donations = priority_donations;
-//  ASSERT (sizeof(struct stack) <= PGSIZE);
-
   /* Prepare thread for first run by initializing its stack.
      Do this atomically so intermediate values for the 'stack'
      member cannot be observed. */
@@ -276,7 +272,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_insert_ordered (&ready_list, &t->elem, order_by_effective_priority, NULL);
+    list_insert_ordered(&ready_list, &t->elem, order_thread_by_effective_priority, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -347,7 +343,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread)
-    list_insert_ordered (&ready_list, &cur->elem, order_by_effective_priority, NULL);
+      list_insert_ordered(&ready_list, &cur->elem, order_thread_by_effective_priority, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -374,8 +370,15 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority)
 {
-  int diff = thread_current()->priority - new_priority;
-  thread_current ()->priority += diff;
+  struct thread *current = thread_current ();
+  current->base_priority = new_priority;
+  //update effective priority
+  if (!list_empty (&current->priority_donations)) {
+    struct donation *max_donation = list_entry (list_front (&current->priority_donations), struct donation, elem);
+    current->priority = max (max_donation->priority, new_priority);
+  } else {
+    current->priority = new_priority;
+  }
 }
 
 /* Returns the current thread's priority. */
@@ -501,7 +504,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->magic = THREAD_MAGIC;
   t->priority = priority;
-  t->effective_priority = priority;
+  t->base_priority = priority;
   list_push_back (&all_list, &t->allelem);
   list_init (&t->priority_donations);
 #ifdef USERPROG
@@ -592,17 +595,24 @@ thread_donate_priority (struct lock *lock) {
   enum intr_level old_level;
   old_level = intr_disable();
 
-  int rel_priority = max(lock->holder->effective_priority - thread_current()->effective_priority, 0);
-  donation->relative_priority = rel_priority;
-  list_push_back(&lock->holder->priority_donations, &donation->elem);
+  int donated_priority = thread_current()->priority;
+  donation->priority = donated_priority;
 
-  lock->holder->effective_priority = lock->holder->effective_priority + rel_priority;
+  list_insert_ordered(&lock->holder->priority_donations, &donation->elem, order_donation_by_priority, NULL);
+
+  lock->holder->priority = max(lock->holder->priority, donated_priority);
 
   // If thread is ready, make sure he gets scheduled next.
   if (lock->holder->status == THREAD_READY) {
     list_remove(&lock->holder->elem);
-    list_insert_ordered (&ready_list, &lock->holder->elem, order_by_effective_priority, NULL);
+    list_insert_ordered(&ready_list, &lock->holder->elem, order_thread_by_effective_priority, NULL);
   }
+
+  // If the lock holder is itself waiting for another lock, donate to the holder of the lock
+  if (lock->holder->lock_waiting != NULL){
+    thread_donate_priority (lock->holder->lock_waiting);
+  }
+
   intr_set_level(old_level);
 }
 
