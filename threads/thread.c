@@ -236,6 +236,11 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+  /* Yield the cpu because this newly created
+     thread could have a higher priority than the current 
+     one and if so should be scheduled */
+  thread_yield ();
+
   return tid;
 }
 
