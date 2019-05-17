@@ -37,7 +37,7 @@
        __typeof__ (b) _b = (b); \
      _a > _b ? _a : _b; })
 
-static bool order_thread_by_effective_priority (const struct list_elem *a,
+static bool order_thread_by_priority (const struct list_elem *a,
                                       const struct list_elem *b,
                                       void *aux UNUSED) {
   struct thread *ae = list_entry(a, struct thread, elem);
@@ -82,7 +82,7 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0)
     {
-      list_push_back (&sema->waiters, &thread_current ()->elem);
+      list_insert_ordered (&sema->waiters, &thread_current ()->elem, order_thread_by_priority, NULL);
       thread_block ();
     }
   sema->value--;
@@ -215,14 +215,17 @@ lock_acquire (struct lock *lock)
   enum intr_level old_level;
 
   // check if the current lock is acquired by a different thread
-  bool acquired = sema_try_down (&lock->semaphore);
+  bool success = sema_try_down (&lock->semaphore);
 
   struct thread *current = thread_current ();
 
   old_level = intr_disable ();
-  if (!acquired) {
+  if (!success) {
+      //console_panic ();
+      //printf("thread with id %d failed to acquire lock with address %p\n", current->tid, lock);
+
       current->lock_waiting = lock;
-      list_insert_ordered(&lock->semaphore.waiters, &current->elem, order_thread_by_effective_priority, NULL);
+      list_insert_ordered(&lock->semaphore.waiters, &current->elem, order_thread_by_priority, NULL);
       // donate current thread's priority to the lock holder
       intr_set_level (old_level);
 
@@ -232,6 +235,9 @@ lock_acquire (struct lock *lock)
       thread_block ();
   }
 
+  //console_panic ();
+  //printf("thread with id %d acquired lock with address %p\n", current->tid, lock);
+  
   // once we are not blocking anymore set self as lock holder
   current->lock_waiting=NULL;
   lock->holder = current;
@@ -289,8 +295,12 @@ lock_release (struct lock *lock)
       }
   }
 
+  //console_panic ();
+  //printf("thread with id %d released lock with address %p\n", lock->holder->tid, lock);
+
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+  thread_yield ();
 }
 
 /* Returns true if the current thread holds LOCK, false
