@@ -385,6 +385,8 @@ thread_set_priority (int new_priority)
   } else {
     current->priority = new_priority;
   }
+
+  thread_yield ();
 }
 
 /* Returns the current thread's priority. */
@@ -620,6 +622,7 @@ thread_donate_priority (struct lock *lock) {
   }
 
   intr_set_level(old_level);
+
 }
 
 /* Schedules a new process.  At entry, interrupts must be off and
