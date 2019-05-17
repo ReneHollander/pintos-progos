@@ -79,8 +79,8 @@ static tid_t allocate_tid (void);
 static bool order_thread_by_effective_priority(const struct list_elem *a,
                                                const struct list_elem *b,
                                                void *aux UNUSED) {
-  struct thread *ae = list_entry(a, struct thread, elem);
-  struct thread *be = list_entry(b, struct thread, elem);
+  struct thread *ae = list_entry(a, struct thread, readyelem);
+  struct thread *be = list_entry(b, struct thread, readyelem);
 
   return ae->priority > be->priority;
 }
@@ -277,7 +277,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-    list_insert_ordered(&ready_list, &t->elem, order_thread_by_effective_priority, NULL);
+    list_insert_ordered(&ready_list, &t->readyelem, order_thread_by_effective_priority, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -330,6 +330,7 @@ thread_exit (void)
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
+  list_remove (&thread_current()->readyelem);
   list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
   schedule ();
@@ -348,7 +349,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread)
-      list_insert_ordered(&ready_list, &cur->elem, order_thread_by_effective_priority, NULL);
+      list_insert_ordered(&ready_list, &cur->readyelem, order_thread_by_effective_priority, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -541,7 +542,7 @@ next_thread_to_run (void)
   if (list_empty (&ready_list))
     return idle_thread;
   else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+    return list_entry (list_pop_front (&ready_list), struct thread, readyelem);
 }
 
 /* Completes a thread switch by activating the new thread's page
@@ -609,8 +610,8 @@ thread_donate_priority (struct lock *lock) {
 
   // If thread is ready, make sure he gets scheduled next.
   if (lock->holder->status == THREAD_READY) {
-    list_remove(&lock->holder->elem);
-    list_insert_ordered(&ready_list, &lock->holder->elem, order_thread_by_effective_priority, NULL);
+    list_remove(&lock->holder->readyelem);
+    list_insert_ordered(&ready_list, &lock->holder->readyelem, order_thread_by_effective_priority, NULL);
   }
 
   // If the lock holder is itself waiting for another lock, donate to the holder of the lock
