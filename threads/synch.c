@@ -232,7 +232,6 @@ lock_acquire (struct lock *lock)
   bool first = true;
 
   // check if the current lock is acquired by a different thread
-  current->lock_waiting = lock;
 //  console_panic ();
 //  printf("%s: here 1, lock=%x\n", current->name, lock);
 
@@ -247,6 +246,7 @@ lock_acquire (struct lock *lock)
         thread_donate_priority(current, lock);
       }
 
+      current->lock_waiting = lock;
       thread_block ();
   }
 
