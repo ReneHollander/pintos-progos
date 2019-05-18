@@ -29,6 +29,7 @@
 #include "threads/synch.h"
 #include <stdio.h>
 #include <string.h>
+#include <lib/kernel/console.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
@@ -79,14 +80,20 @@ sema_down (struct semaphore *sema)
   ASSERT (sema != NULL);
   ASSERT (!intr_context ());
 
+  struct thread * cur = thread_current();
+
+  cur->sema_waiting = sema;
+
   old_level = intr_disable ();
   while (sema->value == 0)
     {
       //list_push_back (&sema->waiters, &thread_current ()->elem);
-      list_insert_ordered(&sema->waiters, &thread_current ()->elem, order_thread_by_effective_priority, NULL);
+      list_insert_ordered(&sema->waiters, &cur->elem, order_thread_by_effective_priority,
+                          NULL);
       thread_block ();
     }
   sema->value--;
+  cur->sema_waiting = NULL;
   intr_set_level (old_level);
 }
 
@@ -130,9 +137,11 @@ sema_up (struct semaphore *sema)
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
-  if (!list_empty (&sema->waiters))
-    thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                struct thread, elem));
+  if (!list_empty (&sema->waiters)) {
+    struct thread * t = list_entry (list_pop_front (&sema->waiters),
+                                    struct thread, elem);
+    thread_unblock (t);
+  }
   sema->value++;
   intr_set_level (old_level);
 
@@ -217,26 +226,36 @@ lock_acquire (struct lock *lock)
 
   enum intr_level old_level;
 
-  // check if the current lock is acquired by a different thread
-  bool acquired = sema_try_down (&lock->semaphore);
-
   struct thread *current = thread_current ();
-
   old_level = intr_disable ();
-  if (!acquired) {
-      current->lock_waiting = lock;
-      list_insert_ordered(&lock->semaphore.waiters, &current->elem, order_thread_by_effective_priority, NULL);
+
+  bool first = true;
+
+  // check if the current lock is acquired by a different thread
+  current->lock_waiting = lock;
+//  console_panic ();
+//  printf("%s: here 1, lock=%x\n", current->name, lock);
+
+  current->sema_waiting = &lock->semaphore;
+  while (!sema_try_down (&lock->semaphore)) {
+    list_insert_ordered(&lock->semaphore.waiters, &current->elem, order_thread_by_effective_priority,
+                        NULL);
       // donate current thread's priority to the lock holder
-      intr_set_level (old_level);
 
-      thread_donate_priority(lock);
+      if (first) {
+        first = false;
+        thread_donate_priority(current, lock);
+      }
 
-      old_level = intr_disable ();
       thread_block ();
   }
 
+
+//  console_panic ();
+//  printf("%s: here 2, lock=%x\n", current->name, lock);
   // once we are not blocking anymore set self as lock holder
-  current->lock_waiting=NULL;
+  current->sema_waiting = NULL;
+  current->lock_waiting = NULL;
   lock->holder = current;
 
   intr_set_level (old_level);
@@ -268,7 +287,7 @@ lock_try_acquire (struct lock *lock)
    make sense to try to release a lock within an interrupt
    handler. */
 void
-lock_release (struct lock *lock) 
+lock_release (struct lock *lock)
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
@@ -285,7 +304,7 @@ lock_release (struct lock *lock)
             struct donation *max_donation = list_entry (list_front (&lock->holder->priority_donations), struct donation, elem);
             lock->holder->priority = max (max_donation->priority, lock->holder->base_priority);
           } else {
-            lock->holder->priority = lock->holder->base_priority; 
+            lock->holder->priority = lock->holder->base_priority;
           }
       } else {
           e = list_next (e);
@@ -295,7 +314,7 @@ lock_release (struct lock *lock)
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 
-  thread_yield ();
+//  thread_yield ();
 }
 
 /* Returns true if the current thread holds LOCK, false

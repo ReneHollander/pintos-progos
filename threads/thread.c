@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include <lib/kernel/console.h>
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -76,9 +77,9 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
-static bool order_thread_by_effective_priority(const struct list_elem *a,
-                                               const struct list_elem *b,
-                                               void *aux UNUSED) {
+static bool order_thread_by_effective_priority_for_readyelem (const struct list_elem *a,
+                                                             const struct list_elem *b,
+                                                             void *aux UNUSED) {
   struct thread *ae = list_entry(a, struct thread, readyelem);
   struct thread *be = list_entry(b, struct thread, readyelem);
 
@@ -92,6 +93,15 @@ static bool order_donation_by_priority(const struct list_elem *a,
   struct donation *d2 = list_entry(b, struct donation, elem);
 
   return d1->priority > d2->priority;
+}
+
+static bool order_thread_by_effective_priority_for_elem (const struct list_elem *a,
+                                                const struct list_elem *b,
+                                                void *aux UNUSED) {
+  struct thread *ae = list_entry(a, struct thread, elem);
+  struct thread *be = list_entry(b, struct thread, elem);
+
+  return ae->priority > be->priority;
 }
 
 /* Initializes the threading system by transforming the code
@@ -276,8 +286,10 @@ thread_unblock (struct thread *t)
   ASSERT (is_thread (t));
 
   old_level = intr_disable ();
-  ASSERT (t->status == THREAD_BLOCKED);
-    list_insert_ordered(&ready_list, &t->readyelem, order_thread_by_effective_priority, NULL);
+  if (t->status != THREAD_BLOCKED) {
+    ASSERT (t->status == THREAD_BLOCKED);
+  }
+  list_insert_ordered(&ready_list, &t->readyelem, order_thread_by_effective_priority_for_readyelem, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -349,7 +361,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread)
-      list_insert_ordered(&ready_list, &cur->readyelem, order_thread_by_effective_priority, NULL);
+    list_insert_ordered(&ready_list, &cur->readyelem, order_thread_by_effective_priority_for_readyelem, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -594,35 +606,59 @@ thread_schedule_tail (struct thread *prev)
 }
 
 void
-thread_donate_priority (struct lock *lock) {
+thread_donate_priority (struct thread * donor, struct lock *lock) {
   struct donation *donation = palloc_get_page(PAL_ZERO);
   ASSERT(donation != NULL);
+
+//  console_panic ();
+//  printf ("thread %s(%d) with priority %d is donating to thread %s(%d) with priority %d\n", donor->name, donor->tid, donor->priority, lock->holder->name, lock->holder->tid, lock->holder->priority);
 
   donation->lock = lock;
 
   enum intr_level old_level;
   old_level = intr_disable();
 
-  int donated_priority = thread_current()->priority;
+  int donated_priority = donor->priority;
   donation->priority = donated_priority;
 
   list_insert_ordered(&lock->holder->priority_donations, &donation->elem, order_donation_by_priority, NULL);
 
   lock->holder->priority = max(lock->holder->priority, donated_priority);
 
+  bool shouldYield = false;
+
   // If thread is ready, make sure he gets scheduled next.
   if (lock->holder->status == THREAD_READY) {
     list_remove(&lock->holder->readyelem);
-    list_insert_ordered(&ready_list, &lock->holder->readyelem, order_thread_by_effective_priority, NULL);
+    list_insert_ordered(&ready_list, &lock->holder->readyelem, order_thread_by_effective_priority_for_readyelem, NULL);
+
+    shouldYield = true;
+  }
+
+  if (lock->holder->sema_waiting != NULL) {
+    struct semaphore *sema = lock->holder->sema_waiting;
+//    console_panic ();
+//    printf("Status is blocked: %d", lock->holder->status == THREAD_BLOCKED);
+    list_remove(&lock->holder->elem);
+    list_insert_ordered(&sema->waiters, &lock->holder->elem, order_thread_by_effective_priority_for_elem, NULL);
+
+
+
+    shouldYield = true;
   }
 
   // If the lock holder is itself waiting for another lock, donate to the holder of the lock
+//  printf("Next lock %x\n", lock->holder->lock_waiting);
   if (lock->holder->lock_waiting != NULL){
-    thread_donate_priority (lock->holder->lock_waiting);
+//    printf("Recusring donation. Next holder is %s(%d)\n", lock->holder->lock_waiting->holder->name, lock->holder->lock_waiting->holder->tid);
+    thread_donate_priority (lock->holder, lock->holder->lock_waiting);
+  } else {
+    shouldYield = true;
   }
 
   intr_set_level(old_level);
 
+  if (shouldYield) thread_yield ();
 }
 
 /* Schedules a new process.  At entry, interrupts must be off and
@@ -639,6 +675,15 @@ schedule (void)
   struct thread *next = next_thread_to_run ();
   struct thread *prev = NULL;
 
+//  char cur_name[32];
+//  strlcpy(cur_name, cur->name, sizeof(cur_name));
+//
+//  char next_name[32];
+//  strlcpy(next_name, next->name, sizeof(next_name));
+
+//  console_panic ();
+//  printf("[schedule] cur=%s, next=%s\n", cur_name, next_name);
+
   ASSERT (intr_get_level () == INTR_OFF);
   ASSERT (cur->status != THREAD_RUNNING);
   ASSERT (is_thread (next));
@@ -646,7 +691,7 @@ schedule (void)
   if (cur != next)
     prev = switch_threads (cur, next);
   thread_schedule_tail (prev);
-}
+  }
 
 /* Returns a tid to use for a new thread. */
 static tid_t
