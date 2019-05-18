@@ -3,7 +3,6 @@
 
 #include <debug.h>
 #include <list.h>
-#include <stack.h>
 #include <stdint.h>
 #include "threads/synch.h"
 

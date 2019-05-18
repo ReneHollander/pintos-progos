@@ -608,9 +608,6 @@ thread_donate_priority (struct thread * donor, struct lock *lock) {
   struct donation *donation = palloc_get_page(PAL_ZERO);
   ASSERT(donation != NULL);
 
-//  console_panic ();
-//  printf ("thread %s(%d) with priority %d is donating to thread %s(%d) with priority %d\n", donor->name, donor->tid, donor->priority, lock->holder->name, lock->holder->tid, lock->holder->priority);
-
   donation->lock = lock;
 
   enum intr_level old_level;
@@ -672,7 +669,7 @@ schedule (void)
   if (cur != next)
     prev = switch_threads (cur, next);
   thread_schedule_tail (prev);
-  }
+}
 
 /* Returns a tid to use for a new thread. */
 static tid_t
