@@ -78,8 +78,8 @@ void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
 static bool order_thread_by_effective_priority_for_readyelem (const struct list_elem *a,
-                                                             const struct list_elem *b,
-                                                             void *aux UNUSED) {
+                                                              const struct list_elem *b,
+                                                              void *aux UNUSED) {
   struct thread *ae = list_entry(a, struct thread, readyelem);
   struct thread *be = list_entry(b, struct thread, readyelem);
 
@@ -96,8 +96,8 @@ static bool order_donation_by_priority(const struct list_elem *a,
 }
 
 static bool order_thread_by_effective_priority_for_elem (const struct list_elem *a,
-                                                const struct list_elem *b,
-                                                void *aux UNUSED) {
+                                                         const struct list_elem *b,
+                                                         void *aux UNUSED) {
   struct thread *ae = list_entry(a, struct thread, elem);
   struct thread *be = list_entry(b, struct thread, elem);
 
@@ -286,9 +286,7 @@ thread_unblock (struct thread *t)
   ASSERT (is_thread (t));
 
   old_level = intr_disable ();
-  if (t->status != THREAD_BLOCKED) {
-    ASSERT (t->status == THREAD_BLOCKED);
-  }
+  ASSERT (t->status == THREAD_BLOCKED);
   list_insert_ordered(&ready_list, &t->readyelem, order_thread_by_effective_priority_for_readyelem, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
@@ -631,26 +629,18 @@ thread_donate_priority (struct thread * donor, struct lock *lock) {
   if (lock->holder->status == THREAD_READY) {
     list_remove(&lock->holder->readyelem);
     list_insert_ordered(&ready_list, &lock->holder->readyelem, order_thread_by_effective_priority_for_readyelem, NULL);
-
     shouldYield = true;
   }
 
   if (lock->holder->sema_waiting != NULL) {
     struct semaphore *sema = lock->holder->sema_waiting;
-//    console_panic ();
-//    printf("Status is blocked: %d", lock->holder->status == THREAD_BLOCKED);
     list_remove(&lock->holder->elem);
     list_insert_ordered(&sema->waiters, &lock->holder->elem, order_thread_by_effective_priority_for_elem, NULL);
-
-
-
     shouldYield = true;
   }
 
   // If the lock holder is itself waiting for another lock, donate to the holder of the lock
-//  printf("Next lock %x\n", lock->holder->lock_waiting);
   if (lock->holder->lock_waiting != NULL){
-//    printf("Recusring donation. Next holder is %s(%d)\n", lock->holder->lock_waiting->holder->name, lock->holder->lock_waiting->holder->tid);
     thread_donate_priority (lock->holder, lock->holder->lock_waiting);
   } else {
     shouldYield = true;
@@ -674,15 +664,6 @@ schedule (void)
   struct thread *cur = running_thread ();
   struct thread *next = next_thread_to_run ();
   struct thread *prev = NULL;
-
-//  char cur_name[32];
-//  strlcpy(cur_name, cur->name, sizeof(cur_name));
-//
-//  char next_name[32];
-//  strlcpy(next_name, next->name, sizeof(next_name));
-
-//  console_panic ();
-//  printf("[schedule] cur=%s, next=%s\n", cur_name, next_name);
 
   ASSERT (intr_get_level () == INTR_OFF);
   ASSERT (cur->status != THREAD_RUNNING);
