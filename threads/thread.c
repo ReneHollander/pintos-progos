@@ -387,6 +387,9 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority)
 {
+  enum intr_level old_level;
+  old_level = intr_disable ();
+
   struct thread *current = thread_current ();
   current->base_priority = new_priority;
   //update effective priority
@@ -396,6 +399,8 @@ thread_set_priority (int new_priority)
   } else {
     current->priority = new_priority;
   }
+
+  intr_set_level (old_level);
 
   thread_yield ();
 }
