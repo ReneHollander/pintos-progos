@@ -9,6 +9,7 @@
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
 #include "threads/palloc.h"
+#include "threads/malloc.h"
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
@@ -605,7 +606,7 @@ thread_schedule_tail (struct thread *prev)
 
 void
 thread_donate_priority (struct thread * donor, struct lock *lock) {
-  struct donation *donation = palloc_get_page(PAL_ZERO);
+  struct donation *donation = malloc(sizeof(struct donation));
   ASSERT(donation != NULL);
 
   donation->lock = lock;
