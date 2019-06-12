@@ -18,6 +18,9 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#ifdef VM
+#include "vm/page.h"
+#endif
 
 struct start_arg_data {
   size_t command_size;
@@ -280,6 +283,11 @@ process_exit (void)
     pagedir_destroy (pd);
   }
 
+#ifdef VM
+    unmap_all (&thread->supplemental_page_table);
+    free_supplemental_page_table (&thread->supplemental_page_table);
+#endif
+
   /* Destroy the process structure if the parent is not alive
    * any more. Atomic test and set would be sufficient here.
    */
@@ -392,6 +400,11 @@ load (char *file_name, struct start_arg_data *arg_data, void (**eip) (void), voi
   off_t file_ofs;
   bool success = false;
   int i;
+
+#ifdef VM
+  /* Allocate supplemental page table. */
+  initialize_supplemental_page_table (&t->supplemental_page_table);
+#endif
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
