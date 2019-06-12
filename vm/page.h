@@ -6,35 +6,46 @@
 #include "filesys/file.h"
 #include "lib/kernel/hash.h"
 
-enum supplemental_pte_type {
-  FILE = 1,
-  MEMORY_MAPPED_FILE = 2,
+enum spte_type {
+  SPTE_TYPE_FILE = 1,
+  SPTE_TYPE_MEMORY_MAPPED_FILE = 2,
 };
 
-struct supplemental_pte {
+struct spte {
   void *vaddr;
-  enum supplemental_pte_type type;
+  bool loaded;
   struct file *file;
   off_t offset;
-  size_t size;
-  bool loaded;
+  enum spte_type type;
+  union {
+    struct {
+      uint32_t read_bytes;
+      uint32_t zero_bytes;
+    } file_data;
+    struct {
+      int id;
+      uint32_t length;
+    } memory_mapped_file_data;
+  };
 
   struct hash_elem elem;
 };
 
-void initialize_supplemental_page_table(struct hash *table);
+typedef void spt_action_func (struct spte *e, void *aux);
 
-void add_file(struct hash *table, struct file *file);
+void spt_init (struct hash *table);
 
-int add_memory_mapped_file(struct hash *table, struct file *file);
+void spt_add_file_entry (struct hash *table, void *vaddr, struct file *file, off_t ofs, uint32_t read_bytes, uint32_t zero_bytes);
 
-struct supplemental_pte *get_entry(struct hash *table, void *vaddr);
+void spt_add_memory_mapped_file_entry (struct hash *table, void *vaddr, struct file *file, off_t ofs, int id, uint32_t length);
 
-void remove_memory_mapped_file(struct hash *table, int id);
+struct spte *spt_get (struct hash *table, void *vaddr);
 
-void unmap_all(struct hash *table);
+void spt_iterate_memory_mapped_file_entries (struct hash *table, int id, spt_action_func func, void *aux);
 
-void free_supplemental_page_table(struct hash *table);
+struct spte *spt_remove (struct hash *table, void *vaddr);
+
+void spt_free (struct hash *table);
 
 
 #endif /* vm/page.h */

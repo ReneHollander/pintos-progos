@@ -284,8 +284,7 @@ process_exit (void)
   }
 
 #ifdef VM
-    unmap_all (&thread->supplemental_page_table);
-    free_supplemental_page_table (&thread->supplemental_page_table);
+    spt_free (&thread->supplemental_page_table);
 #endif
 
   /* Destroy the process structure if the parent is not alive
@@ -403,7 +402,7 @@ load (char *file_name, struct start_arg_data *arg_data, void (**eip) (void), voi
 
 #ifdef VM
   /* Allocate supplemental page table. */
-  initialize_supplemental_page_table (&t->supplemental_page_table);
+  spt_init (&t->supplemental_page_table);
 #endif
 
   /* Allocate and activate page directory. */
@@ -594,6 +593,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
     size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
     size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
+    // TODO: Uncomment ifndef to disable installing of pages when VM is enabled.
+//#ifndef VM
     /* Get a page of memory. */
     uint8_t *kpage = palloc_get_page (PAL_USER);
     if (kpage == NULL)
@@ -611,6 +612,11 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       palloc_free_page (kpage);
       return false;
     }
+//#endif
+
+#ifdef VM
+    spt_add_file_entry (&thread_current ()->supplemental_page_table, upage, file, file_tell (file), read_bytes, zero_bytes);
+#endif
 
     /* Advance. */
     read_bytes -= page_read_bytes;
