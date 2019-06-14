@@ -516,8 +516,6 @@ load (char *file_name, struct start_arg_data *arg_data, void (**eip) (void), voi
 
 /* load() helpers. */
 
-static bool install_page (void *upage, void *kpage, bool writable);
-
 /* Checks whether PHDR describes a valid, loadable segment in
    FILE and returns true if so, false otherwise. */
 static bool
@@ -615,7 +613,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 //#endif
 
 #ifdef VM
-    spt_add_file_entry (&thread_current ()->supplemental_page_table, upage, file, file_tell (file), read_bytes, zero_bytes);
+    spt_add_file_entry (&thread_current ()->supplemental_page_table, upage,
+            file, file_tell (file), read_bytes, zero_bytes, writable);
 #endif
 
     /* Advance. */
@@ -698,7 +697,7 @@ setup_stack (struct start_arg_data *arg_data UNUSED, void **esp)
    with palloc_get_page().
    Returns true on success, false if UPAGE is already mapped or
    if memory allocation fails. */
-static bool
+bool
 install_page (void *upage, void *kpage, bool writable)
 {
   struct thread *t = thread_current ();

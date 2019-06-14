@@ -29,7 +29,7 @@ void spt_init (struct hash *table)
 }
 
 void spt_add_file_entry (struct hash *table, void *vaddr,
-    struct file *file, off_t ofs, uint32_t read_bytes, uint32_t zero_bytes)
+    struct file *file, off_t ofs, uint32_t read_bytes, uint32_t zero_bytes, bool writable)
 {
   struct spte *e = malloc (sizeof (struct spte));
   e->vaddr = vaddr;
@@ -38,6 +38,7 @@ void spt_add_file_entry (struct hash *table, void *vaddr,
   e->type = SPTE_TYPE_FILE;
   e->file_data.read_bytes = read_bytes;
   e->file_data.zero_bytes = zero_bytes;
+  e->file_data.writable = writable;
   e->loaded = false;
   hash_insert (table, &e->elem);
 }
@@ -61,6 +62,11 @@ struct spte *spt_get (struct hash *table, void *vaddr)
   struct spte needle;
   needle.vaddr = vaddr;
   struct hash_elem *e = hash_find (table, &needle.elem);
+
+  if (e == NULL) {
+      return NULL;
+  }
+
   return hash_entry (e, struct spte, elem);
 }
 

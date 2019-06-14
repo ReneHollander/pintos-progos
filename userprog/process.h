@@ -44,4 +44,6 @@ void process_lock_filesys (void);
 void process_unlock_filesys (void);
 bool process_close_file(int fd);
 
+bool install_page (void *upage, void *kpage, bool writable);
+
 #endif /* userprog/process.h */
