@@ -1,16 +1,24 @@
 #include "userprog/exception.h"
+#include "userprog/process.h"
 #include <inttypes.h>
 #include <stdio.h>
+#include <filesys/file.h>
+#include <string.h>
+#include <vm/page.h>
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/palloc.h"
+#include "pagedir.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
 static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
+static void handle_fault(struct intr_frame *f, void *fault_addr, bool not_present, bool write, bool user);
+static void handle_paging_error(struct intr_frame *f, void *fault_addr, bool not_present, bool write, bool user);
 
 /* Registers handlers for interrupts that can be caused by user
    programs.
@@ -28,7 +36,7 @@ static void page_fault (struct intr_frame *);
    Refer to [IA32-v3a] section 5.15 "Exception and Interrupt
    Reference" for a description of each of these exceptions. */
 void
-exception_init (void) 
+exception_init (void)
 {
   /* These exceptions can be raised explicitly by a user program,
      e.g. via the INT, INT3, INTO, and BOUND instructions.  Thus,
@@ -63,14 +71,14 @@ exception_init (void)
 
 /* Prints exception statistics. */
 void
-exception_print_stats (void) 
+exception_print_stats (void)
 {
   printf ("Exception: %lld page faults\n", page_fault_cnt);
 }
 
 /* Handler for an exception (probably) caused by a user process. */
 static void
-kill (struct intr_frame *f) 
+kill (struct intr_frame *f)
 {
   /* This interrupt is one (probably) caused by a user process.
      For example, the process might have tried to access unmapped
@@ -79,7 +87,7 @@ kill (struct intr_frame *f)
      the kernel.  Real Unix-like operating systems pass most
      exceptions back to the process via signals, but we don't
      implement them. */
-     
+
   /* The interrupt frame's code segment value tells us where the
      exception originated. */
   switch (f->cs)
@@ -90,7 +98,7 @@ kill (struct intr_frame *f)
       printf ("%s: dying due to interrupt %#04x (%s).\n",
               thread_name (), f->vec_no, intr_name (f->vec_no));
       intr_dump_frame (f);
-      thread_exit (); 
+      thread_exit ();
 
     case SEL_KCSEG:
       /* Kernel's code segment, which indicates a kernel bug.
@@ -98,7 +106,7 @@ kill (struct intr_frame *f)
          may cause kernel exceptions--but they shouldn't arrive
          here.)  Panic the kernel to make the point.  */
       intr_dump_frame (f);
-      PANIC ("Kernel bug - unexpected interrupt in kernel"); 
+      PANIC ("Kernel bug - unexpected interrupt in kernel");
 
     default:
       /* Some other code segment?  Shouldn't happen.  Panic the
@@ -121,7 +129,7 @@ kill (struct intr_frame *f)
    description of "Interrupt 14--Page Fault Exception (#PF)" in
    [IA32-v3a] section 5.15 "Exception and Interrupt Reference". */
 static void
-page_fault (struct intr_frame *f) 
+page_fault (struct intr_frame *f)
 {
   bool not_present;  /* True: not-present page, false: writing r/o page. */
   bool write;        /* True: access was write, false: access was read. */
@@ -149,26 +157,84 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  /* To implement virtual memory, adapt the rest of the function
-     body, adding code that brings in the page to
-     which fault_addr refers. */
-  if (is_user_vaddr(fault_addr)) {
-    if (! user) {
-      /* syscall exception; set eax and eip */
-      f->eip = (void*)f->eax;
-      f->eax = 0xFFFFFFFF;
-      return;
-    } else {
-      /* user process access violation */
-      thread_exit();
+  handle_fault(f, fault_addr, not_present, write, user);
+}
+
+static void
+handle_fault(struct intr_frame *f, void *fault_addr, bool not_present, bool write, bool user) {
+    if (is_user_vaddr(fault_addr)) {
+        if (! user) {
+            /* syscall exception; set eax and eip */
+            f->eip = (void*)f->eax;
+            f->eax = 0xFFFFFFFF;
+            return;
+        }
     }
-  } else {
-    printf ("Page fault at %p: %s error %s page in %s context.\n",
-            fault_addr,
-            not_present ? "not present" : "rights violation",
-            write ? "writing" : "reading",
-            user ? "user" : "kernel");
-    kill (f);
-  }
+
+    /* access violation -> terminate */
+    if(!not_present) {
+        handle_paging_error(f, fault_addr, not_present, write, user);
+    }
+
+#ifdef VM
+    void *fault_page = pg_round_down(fault_addr);
+    struct spte *spte = spt_get(&thread_current()->supplemental_page_table, fault_page);
+
+    if(spte == NULL){
+        handle_paging_error(f, fault_addr, not_present, write, user);
+    }
+
+    uint32_t read_length = 0;
+    bool writable;
+
+    if(spte->type == SPTE_TYPE_MEMORY_MAPPED_FILE){
+        read_length = spte->memory_mapped_file_data.length;
+        writable = true;
+    } else if(spte->type == SPTE_TYPE_FILE){
+        read_length = spte->file_data.read_bytes;
+        writable = spte->file_data.writable;
+    } else {
+        handle_paging_error(f, fault_addr, not_present, write, user);
+    }
+
+    /* Get a page of memory. */
+    uint8_t *kpage = palloc_get_page (PAL_USER);
+    if (kpage == NULL){
+        handle_paging_error(f, fault_addr, not_present, write, user);
+    }
+
+    /* Load data into page. */
+    if (file_read (spte->file, kpage, read_length) != (int) read_length) {
+        palloc_free_page (kpage);
+        handle_paging_error(f, fault_addr, not_present, writable, user);
+    }
+    memset (kpage + spte->file_data.read_bytes, 0, spte->file_data.zero_bytes);
+
+    /* Add the page to the process's address space. */
+    if (!install_page (fault_page, kpage, writable)) {
+        palloc_free_page (kpage);
+        handle_paging_error(f, fault_addr, not_present, write, user);
+    }
+
+#endif
+
+#ifndef VM
+    handle_paging_error(f, fault_addr, not_present, write, user);
+#endif
+}
+
+static void
+handle_paging_error(struct intr_frame *f, void *fault_addr, bool user, bool write, bool not_present) {
+    printf("Page fault at %p: %s error %s page in %s context.\n",
+           fault_addr,
+           not_present ? "not present" : "rights violation",
+           write ? "writing" : "reading",
+           user ? "user" : "kernel");
+
+    if(user) {
+        thread_exit();
+    } else {
+        kill(f);
+    }
 }
 

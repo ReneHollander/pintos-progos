@@ -185,6 +185,8 @@ start_process (void *aux)
     thread_exit ();
   }
 
+  printf("about to start user process\n");
+
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -393,6 +395,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 bool
 load (char *file_name, struct start_arg_data *arg_data, void (**eip) (void), void **esp)
 {
+    printf("loading...\n");
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
   struct file *file = NULL;
@@ -433,6 +436,8 @@ load (char *file_name, struct start_arg_data *arg_data, void (**eip) (void), voi
     printf ("load: %s: error loading executable\n", file_name);
     goto done;
   }
+
+  printf("reading elf file...\n");
 
   /* Read program headers. */
   file_ofs = ehdr.e_phoff;
@@ -493,7 +498,7 @@ load (char *file_name, struct start_arg_data *arg_data, void (**eip) (void), voi
       break;
     }
   }
-
+    printf("setting up stack...\n");
   /* Set up stack. */
   if (!setup_stack (arg_data, esp))
     goto done;
@@ -511,6 +516,9 @@ load (char *file_name, struct start_arg_data *arg_data, void (**eip) (void), voi
     file_close (file);
   }
   lock_release (&filesys_lock);
+
+  printf("loading finished: success: %d\n", success);
+
   return success;
 }
 
@@ -591,8 +599,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
     size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
     size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-    // TODO: Uncomment ifndef to disable installing of pages when VM is enabled.
-//#ifndef VM
+#ifndef VM
     /* Get a page of memory. */
     uint8_t *kpage = palloc_get_page (PAL_USER);
     if (kpage == NULL)
@@ -610,7 +617,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       palloc_free_page (kpage);
       return false;
     }
-//#endif
+#endif
 
 #ifdef VM
     spt_add_file_entry (&thread_current ()->supplemental_page_table, upage,
