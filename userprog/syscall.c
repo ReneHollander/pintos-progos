@@ -631,7 +631,7 @@ syscall_mmap (void *sp, bool *segfault)
   // use new file instance for each mapping
   struct file *reopened = file_reopen(file);
 
-  for (offset = 0; offset < len; offset += PGSIZE)
+  for (offset = 0; (offset + PGSIZE) < len; offset += PGSIZE)
   {
     spt_add_memory_mapped_file_entry(&current->supplemental_page_table, addr + offset, reopened,
                                      offset, id, PGSIZE);
@@ -670,7 +670,7 @@ syscall_munmap (void *sp, bool *segfault)
   list_init(&to_remove);
 
   spt_iterate_memory_mapped_file_entries(&current->supplemental_page_table, id,
-          munmap_spt_action_function, NULL);
+          munmap_spt_action_function, &to_remove);
 
   struct list_elem *e;
 

@@ -613,14 +613,17 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 #endif
 
 #ifdef VM
+    struct file *reopened = file_reopen(file);
+
     spt_add_file_entry (&thread_current ()->supplemental_page_table, upage,
-            file, file_tell (file), read_bytes, zero_bytes, writable);
+                        reopened, ofs, read_bytes, zero_bytes, writable);
 #endif
 
     /* Advance. */
     read_bytes -= page_read_bytes;
     zero_bytes -= page_zero_bytes;
     upage += PGSIZE;
+    ofs += PGSIZE;
   }
   return true;
 }
