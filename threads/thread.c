@@ -480,6 +480,9 @@ init_thread (struct thread *t, const char *name, int priority)
 #ifdef USERPROG
   list_init(&t->children);
 #endif
+#ifdef VM
+    t->mmapid_counter = 0;
+#endif
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

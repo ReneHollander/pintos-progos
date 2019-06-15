@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <syscall-nr.h>
+#include <threads/malloc.h>
 #include "devices/input.h"
 #include "devices/shutdown.h"
 #include "filesys/file.h"
@@ -14,6 +15,7 @@
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
 #include "userprog/syscall.h"
+#include "vm/page.h"
 
 #define STACK_SLOT_SIZE sizeof(int)
 
@@ -178,7 +180,9 @@ static handler
   syscall_read,
   syscall_seek,
   syscall_tell,
-  syscall_close;
+  syscall_close,
+  syscall_mmap,
+  syscall_munmap;
 
 /* Register syscall_handler for interrupt 0x30 */
 void
@@ -214,6 +218,10 @@ syscall_handler (struct intr_frame *f)
   case SYS_SEEK: fp = syscall_seek; break;
   case SYS_TELL: fp = syscall_tell; break;
   case SYS_CLOSE: fp = syscall_close; break;
+#ifdef VM
+  case SYS_MMAP: fp = syscall_mmap; break;
+  case SYS_MUNMAP: fp = syscall_munmap; break;
+#endif
   default:
     goto fail;
   }
@@ -561,3 +569,123 @@ syscall_close (void *sp, bool *segfault)
   (void) process_close_file (fd);
   return 0;
 }
+
+#ifdef VM
+
+struct munmap_list_entry
+{
+    struct list_elem elem;
+    struct spte *value;
+};
+
+static int
+syscall_mmap (void *sp, bool *segfault)
+{
+  int fd;
+  void *addr;
+
+  /* get arguments */
+  if (! copy_from_user (&fd, STACK_ADDR (sp,1)) ||
+      ! copy_from_user (&addr, STACK_ADDR (sp, 2)))
+  {
+    *segfault = true;
+    return -1;
+  }
+
+  struct file *file;
+  off_t len, offset;
+  struct thread *current;
+
+  current = thread_current();
+
+  // make sure the given address is not 0, page aligned and a user vaddr
+  if (addr == 0x0 || pg_ofs(addr) != 0)
+  {
+    return -1;
+  }
+
+  // get the file for the given fd
+  file = process_get_file(fd);
+  if (file == NULL)
+  {
+    return -1;
+  }
+
+  // get file length
+  len = file_length(file);
+  if (len == 0)
+  {
+    return -1;
+  }
+
+  // make sure there is enough space for the file at the give address
+  for (offset = 0; offset < len; offset += PGSIZE)
+  {
+    if (spt_get(&current->supplemental_page_table, addr + offset) != NULL)
+    {
+      return -1;
+    }
+  }
+
+  int id = current->mmapid_counter++;
+  // use new file instance for each mapping
+  struct file *reopened = file_reopen(file);
+
+  for (offset = 0; offset < len; offset += PGSIZE)
+  {
+    spt_add_memory_mapped_file_entry(&current->supplemental_page_table, addr + offset, reopened,
+                                     offset, id, PGSIZE);
+  }
+
+  spt_add_memory_mapped_file_entry(&current->supplemental_page_table, addr + offset, reopened,
+                                   offset, id, len % PGSIZE);
+
+  return id;
+}
+
+static void
+munmap_spt_action_function(struct spte *e, void *aux)
+{
+  struct munmap_list_entry *entry = malloc(sizeof(struct munmap_list_entry));
+  entry->value = e;
+  list_push_back(aux, &entry->elem);
+}
+
+static int
+syscall_munmap (void *sp, bool *segfault)
+{
+  int id;
+  struct list to_remove;
+  struct thread *current;
+
+  current = thread_current();
+
+  /* get arguments */
+  if (! copy_from_user (&id, STACK_ADDR (sp,1)))
+  {
+    *segfault = true;
+    return -1;
+  }
+
+  list_init(&to_remove);
+
+  spt_iterate_memory_mapped_file_entries(&current->supplemental_page_table, id,
+          munmap_spt_action_function, NULL);
+
+  struct list_elem *e;
+
+  for (e = list_begin (&to_remove); e != list_end (&to_remove); e = list_next (e))
+  {
+    struct munmap_list_entry *data = list_entry (e, struct munmap_list_entry, elem);
+    spt_remove(&current->supplemental_page_table, data->value->vaddr);
+  }
+
+  while (!list_empty (&to_remove))
+  {
+    e = list_pop_front (&to_remove);
+    free(list_entry (e, struct munmap_list_entry, elem));
+  }
+
+  return 0;
+}
+#endif

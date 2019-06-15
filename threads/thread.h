@@ -110,6 +110,8 @@ struct thread
 
 #ifdef VM
     struct hash supplemental_page_table;
+
+    int mmapid_counter;
 #endif
 
     /* Owned by thread.c. */
