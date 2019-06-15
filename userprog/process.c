@@ -652,6 +652,10 @@ setup_stack (struct start_arg_data *arg_data UNUSED, void **esp)
       return false;
   }
 
+#ifdef VM
+  thread_current()->stack_size += PGSIZE;
+#endif
+
   // move arguments seperated by NULL terminators to end of page (i.e start of the stack).
   memcpy(KPAGE_END - arg_data->command_size, arg_data->args, arg_data->command_size);
 

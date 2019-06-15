@@ -181,8 +181,22 @@ handle_fault(struct intr_frame *f, void *fault_addr, bool not_present, bool writ
     }
 
 #ifdef VM
+    struct thread *curr = thread_current ();
     void *fault_page = pg_round_down(fault_addr);
-    struct spte *spte = spt_get(&thread_current()->supplemental_page_table, fault_page);
+    struct spte *spte = spt_get(&curr->supplemental_page_table, fault_page);
+
+    if (fault_addr < PHYS_BASE && fault_addr > PHYS_BASE - curr->stack_size - PGSIZE) {
+      uint8_t *kpage = palloc_get_page (PAL_USER);
+      if (kpage == NULL){
+        handle_paging_error(f, fault_addr, not_present, write, user);
+      }
+      if (!install_page (fault_page, kpage, true)) {
+        palloc_free_page (kpage);
+        handle_paging_error(f, fault_addr, not_present, write, user);
+      }
+      curr->stack_size += PGSIZE;
+      return;
+    }
 
     if(spte == NULL){
         handle_paging_error(f, fault_addr, not_present, write, user);

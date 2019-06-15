@@ -482,6 +482,7 @@ init_thread (struct thread *t, const char *name, int priority)
 #endif
 #ifdef VM
     t->mmapid_counter = 0;
+    t->stack_size = 0;
 #endif
 }
 

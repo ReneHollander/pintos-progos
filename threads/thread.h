@@ -112,6 +112,7 @@ struct thread
     struct hash supplemental_page_table;
 
     int mmapid_counter;
+    int stack_size;
 #endif
 
     /* Owned by thread.c. */
