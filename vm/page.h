@@ -30,9 +30,10 @@ struct spte {
   };
 
   struct hash_elem elem;
+  struct list_elem remove_elem;
 };
 
-typedef void spt_action_func (struct spte *e, void *aux);
+typedef int spt_action_func (struct spte *e, void *aux);
 
 void spt_init (struct hash *table);
 
@@ -44,7 +45,7 @@ void spt_add_memory_mapped_file_entry (struct hash *table, void *vaddr,
 
 struct spte *spt_get (struct hash *table, void *vaddr);
 
-void spt_iterate_memory_mapped_file_entries (struct hash *table, int id, spt_action_func func, void *aux);
+int spt_iterate_memory_mapped_file_entries (struct hash *table, int id, spt_action_func func, void *aux);
 
 void spt_iterate_all_mmap_entries (struct hash *table, spt_action_func func, void *aux);
 
@@ -52,5 +53,12 @@ struct spte *spt_remove (struct hash *table, void *vaddr);
 
 void spt_free (struct hash *table);
 
+struct munmap_action_data {
+  uint32_t *pagedir;
+  struct list *to_remove;
+  struct file *to_close;
+};
+
+int munmap_spt_action_function (struct spte *e, void *aux);
 
 #endif /* vm/page.h */

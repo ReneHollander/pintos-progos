@@ -46,7 +46,6 @@ static thread_func start_process NO_RETURN;
 static bool load (char *filename, struct start_arg_data *arg_data, void (**eip) (void), void **esp);
 static bool setup_stack (struct start_arg_data *arg_data, void **esp);
 static bool init_fd_table (struct fd_table * table);
-static void exit_spt_function(struct spte *e, void *aux);
 static void write_mmaped_files(void);
 
 /* Initialize the filesystem lock */
@@ -310,28 +309,18 @@ process_exit (void)
 static void
 write_mmaped_files(void)
 {
-    struct thread *current = thread_current();
+  struct thread *current = thread_current();
 
-    if(current->process == NULL){
-        return;
-    }
+  if(current->process == NULL){
+    return;
+  }
 
-    //iterate over all mmap entries in the spt and write them out to disk
-    spt_iterate_all_mmap_entries(&current->supplemental_page_table, exit_spt_function, NULL);
-}
+  struct munmap_action_data data;
+  data.pagedir = current->pagedir;
+  data.to_remove = NULL;
 
-static void
-exit_spt_function(struct spte *e, void *aux)
-{
-    if(e->loaded) {
-        struct file *mmaped_file = e->file;
-        uint32_t length = e->memory_mapped_file_data.length;
-        off_t offset = e->offset;
-
-        if (file_write_at(mmaped_file, e->vaddr, length, offset) != length) {
-            //error
-        }
-    }
+  //iterate over all mmap entries in the spt and write them out to disk
+  spt_iterate_all_mmap_entries(&current->supplemental_page_table, munmap_spt_action_function, &data);
 }
 
 /* Sets up the CPU for running user code in the current

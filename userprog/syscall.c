@@ -574,12 +574,6 @@ syscall_close (void *sp, bool *segfault)
 
 //#ifdef VM
 
-struct munmap_list_entry
-{
-    struct list_elem elem;
-    struct spte *value;
-};
-
 static int
 syscall_mmap (void *sp, bool *segfault)
 {
@@ -650,20 +644,6 @@ syscall_mmap (void *sp, bool *segfault)
   return id;
 }
 
-struct overlap_aux_data {
-    void *start_addr;
-    uint32_t length;
-    bool has_overlap;
-};
-
-static void
-munmap_spt_action_function(struct spte *e, void *aux)
-{
-  struct munmap_list_entry *entry = malloc(sizeof(struct munmap_list_entry));
-  entry->value = e;
-  list_push_back(aux, &entry->elem);
-}
-
 static int
 syscall_munmap (void *sp, bool *segfault)
 {
@@ -682,33 +662,26 @@ syscall_munmap (void *sp, bool *segfault)
 
   list_init(&to_remove);
 
-  spt_iterate_memory_mapped_file_entries(&current->supplemental_page_table, id,
-          munmap_spt_action_function, &to_remove);
+  // Iterate entries with the given id and write to disk and mark form removal.
+  struct munmap_action_data data;
+  data.pagedir = current->pagedir;
+  data.to_remove = &to_remove;
+  if (spt_iterate_memory_mapped_file_entries(&current->supplemental_page_table, id,
+          munmap_spt_action_function, &data) < 0) {
 
-  struct list_elem *e;
-
-  for (e = list_begin (&to_remove); e != list_end (&to_remove); e = list_next (e))
-  {
-    struct munmap_list_entry *data = list_entry (e, struct munmap_list_entry, elem);
-    struct file *file = data->value->file;
-    void *vaddr = data->value->vaddr;
-    uint32_t length = data->value->memory_mapped_file_data.length;
-    off_t offset = data->value->offset;
-    bool loaded = data->value->loaded;
-    bool is_dirty = pagedir_is_dirty(current->pagedir, vaddr);
-
-      if(loaded && is_dirty && file_write_at(file, vaddr, length, offset) != length) {
-          //error
-      }
-
-    spt_remove(&current->supplemental_page_table, data->value->vaddr);
+    return -1;
   }
 
+  // Iterate entries that need to be removed from the supplemental page table.
   while (!list_empty (&to_remove))
   {
-    e = list_pop_front (&to_remove);
-    free(list_entry (e, struct munmap_list_entry, elem));
+    struct spte *e = list_entry (list_pop_front (&to_remove), struct spte, remove_elem);
+    spt_remove(&current->supplemental_page_table, e->vaddr);
+    free(e);
   }
+
+  // Close the reopened file.
+  file_close(data.to_close);
 
   return 0;
 }

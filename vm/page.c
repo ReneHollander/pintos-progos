@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <userprog/pagedir.h>
+#include <threads/palloc.h>
 #include "kernel/hash.h"
 #include "threads/malloc.h"
 
@@ -73,16 +75,20 @@ struct spte *spt_get (struct hash *table, void *vaddr)
 /*
  * Don't remove while iterating.
  */
-void spt_iterate_memory_mapped_file_entries (struct hash *table, int id, spt_action_func func, void *aux)
+int spt_iterate_memory_mapped_file_entries (struct hash *table, int id, spt_action_func func, void *aux)
 {
   struct hash_iterator i;
   hash_first (&i, table);
   while (hash_next (&i)) {
     struct spte *e = hash_entry (hash_cur(&i), struct spte, elem);
     if (e->type == SPTE_TYPE_MEMORY_MAPPED_FILE && e->memory_mapped_file_data.id == id) {
-      func(e, aux);
+      int res;
+      if ((res = func(e, aux)) < 0) {
+        return res;
+      }
     }
   }
+  return 0;
 }
 
 void spt_iterate_all_mmap_entries (struct hash *table, spt_action_func func, void *aux)
@@ -114,4 +120,28 @@ static void spt_clear_hash_action_func (struct hash_elem *a, __attribute__((unus
 void spt_free (struct hash *table)
 {
   hash_destroy (table, spt_clear_hash_action_func);
+}
+
+int munmap_spt_action_function (struct spte *e, void *aux)
+{
+  struct munmap_action_data *data = aux;
+  data->to_close = e->file;
+  // When page is loaded and dirty, write to file.
+  if (e->loaded) {
+    if (pagedir_is_dirty(data->pagedir, e->vaddr)) {
+      if (file_write_at(e->file, e->vaddr, e->memory_mapped_file_data.length, e->offset) != e->memory_mapped_file_data.length) {
+        return -1;
+      }
+    }
+
+    void *kpage = pagedir_get_page (data->pagedir, e->vaddr);
+    pagedir_clear_page(data->pagedir, e->vaddr);
+    palloc_free_page(kpage);
+  }
+
+  if (data->to_remove != NULL) {
+    list_push_back(data->to_remove, &e->remove_elem);
+  }
+
+  return 0;
 }
