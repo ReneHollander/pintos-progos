@@ -572,7 +572,7 @@ syscall_close (void *sp, bool *segfault)
   return 0;
 }
 
-//#ifdef VM
+#ifdef VM
 
 struct munmap_list_entry
 {
@@ -645,12 +645,6 @@ syscall_mmap (void *sp, bool *segfault)
   return id;
 }
 
-struct overlap_aux_data {
-    void *start_addr;
-    uint32_t length;
-    bool has_overlap;
-};
-
 static void
 munmap_spt_action_function(struct spte *e, void *aux)
 {
@@ -707,4 +701,4 @@ syscall_munmap (void *sp, bool *segfault)
 
   return 0;
 }
-//#endif
+#endif
