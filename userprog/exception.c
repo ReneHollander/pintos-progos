@@ -12,6 +12,8 @@
 #include "threads/palloc.h"
 #include "pagedir.h"
 
+#define MAX_STACK_SIZE (8 * 1024 * 1024)
+
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
@@ -176,7 +178,8 @@ handle_fault(struct intr_frame *f, void *fault_addr, bool not_present, bool writ
     void *fault_page = pg_round_down(fault_addr);
     struct spte *spte = spt_get(&curr->supplemental_page_table, fault_page);
 
-    if (user && fault_addr < PHYS_BASE && fault_addr > PHYS_BASE - curr->stack_size - PGSIZE) {
+    void *esp = user ? f->esp : curr->saved_esp;
+    if (fault_addr < PHYS_BASE && PHYS_BASE - MAX_STACK_SIZE < fault_addr && (esp <= fault_addr || fault_addr == esp - 4 || fault_addr == esp - 32)) {
       uint8_t *kpage = palloc_get_page (PAL_USER);
       if (kpage == NULL){
         handle_paging_error(f, fault_addr, not_present, write, user);
@@ -185,7 +188,7 @@ handle_fault(struct intr_frame *f, void *fault_addr, bool not_present, bool writ
         palloc_free_page (kpage);
         handle_paging_error(f, fault_addr, not_present, write, user);
       }
-      curr->stack_size += PGSIZE;
+      curr->stack_size = curr->stack_size < PHYS_BASE - fault_page + PGSIZE ? PHYS_BASE - fault_page + PGSIZE : curr->stack_size;
       return;
     }
 

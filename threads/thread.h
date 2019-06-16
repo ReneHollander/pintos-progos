@@ -112,7 +112,8 @@ struct thread
     struct hash supplemental_page_table;
 
     int mmapid_counter;
-    int stack_size;
+    int stack_size;                     /* Current size of the stack. */
+    void *saved_esp;                    /* Saved esp when switching from user to kernel. */
 #endif
 
     /* Owned by thread.c. */

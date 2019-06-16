@@ -200,6 +200,7 @@ syscall_handler (struct intr_frame *f)
   bool segfault = false;
   int result;
   void *sp = f->esp;
+  thread_current ()->saved_esp = sp;
 
   /* The system call number and the arguments are on the stack */
   if (! copy_from_user (&syscall_nr,sp))
