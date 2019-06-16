@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 #include <threads/malloc.h>
+#include <vm/page.h>
 #include "devices/input.h"
 #include "devices/shutdown.h"
 #include "filesys/file.h"
@@ -570,7 +571,7 @@ syscall_close (void *sp, bool *segfault)
   return 0;
 }
 
-#ifdef VM
+//#ifdef VM
 
 struct munmap_list_entry
 {
@@ -643,6 +644,12 @@ syscall_mmap (void *sp, bool *segfault)
   return id;
 }
 
+struct overlap_aux_data {
+    void *start_addr;
+    uint32_t length;
+    bool has_overlap;
+};
+
 static void
 munmap_spt_action_function(struct spte *e, void *aux)
 {
@@ -677,6 +684,17 @@ syscall_munmap (void *sp, bool *segfault)
   for (e = list_begin (&to_remove); e != list_end (&to_remove); e = list_next (e))
   {
     struct munmap_list_entry *data = list_entry (e, struct munmap_list_entry, elem);
+    struct file *file = data->value->file;
+    void *vaddr = data->value->vaddr;
+    uint32_t length = data->value->memory_mapped_file_data.length;
+    off_t offset = data->value->offset;
+    bool loaded = data->value->loaded;
+    bool is_dirty = pagedir_is_dirty(current->pagedir, vaddr);
+
+      if(loaded && is_dirty && file_write_at(file, vaddr, length, offset) != length) {
+          //error
+      }
+
     spt_remove(&current->supplemental_page_table, data->value->vaddr);
   }
 
@@ -688,4 +706,4 @@ syscall_munmap (void *sp, bool *segfault)
 
   return 0;
 }
-#endif
+//#endif

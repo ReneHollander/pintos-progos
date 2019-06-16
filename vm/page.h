@@ -46,6 +46,8 @@ struct spte *spt_get (struct hash *table, void *vaddr);
 
 void spt_iterate_memory_mapped_file_entries (struct hash *table, int id, spt_action_func func, void *aux);
 
+void spt_iterate_all_mmap_entries (struct hash *table, spt_action_func func, void *aux);
+
 struct spte *spt_remove (struct hash *table, void *vaddr);
 
 void spt_free (struct hash *table);
