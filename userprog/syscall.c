@@ -572,7 +572,7 @@ syscall_close (void *sp, bool *segfault)
   return 0;
 }
 
-//#ifdef VM
+#ifdef VM
 
 static int
 syscall_mmap (void *sp, bool *segfault)
@@ -685,4 +685,4 @@ syscall_munmap (void *sp, bool *segfault)
 
   return 0;
 }
-//#endif
+#endif

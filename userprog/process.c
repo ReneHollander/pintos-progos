@@ -46,7 +46,6 @@ static thread_func start_process NO_RETURN;
 static bool load (char *filename, struct start_arg_data *arg_data, void (**eip) (void), void **esp);
 static bool setup_stack (struct start_arg_data *arg_data, void **esp);
 static bool init_fd_table (struct fd_table * table);
-static void write_mmaped_files(void);
 
 /* Initialize the filesystem lock */
 void
@@ -228,6 +227,25 @@ process_wait (tid_t child_tid)
   return exit_status;
 }
 
+#ifdef VM
+static void
+write_mmaped_files(void)
+{
+  struct thread *current = thread_current();
+
+  if(current->process == NULL){
+    return;
+  }
+
+  struct munmap_action_data data;
+  data.pagedir = current->pagedir;
+  data.to_remove = NULL;
+
+  //iterate over all mmap entries in the spt and write them out to disk
+  spt_iterate_all_mmap_entries(&current->supplemental_page_table, munmap_spt_action_function, &data);
+}
+#endif
+
 /* Free the current process's resources. */
 void
 process_exit (void)
@@ -235,7 +253,9 @@ process_exit (void)
   struct thread *thread = thread_current ();
   ASSERT (thread != NULL);
 
+#ifdef VM
   write_mmaped_files();
+#endif
 
   /* remove (and if necessary clean up) child processes */
   struct list_elem *e = list_head (&thread->children);
@@ -304,23 +324,6 @@ process_exit (void)
   } else {
     sema_up (&proc->exit_sem);
   }
-}
-
-static void
-write_mmaped_files(void)
-{
-  struct thread *current = thread_current();
-
-  if(current->process == NULL){
-    return;
-  }
-
-  struct munmap_action_data data;
-  data.pagedir = current->pagedir;
-  data.to_remove = NULL;
-
-  //iterate over all mmap entries in the spt and write them out to disk
-  spt_iterate_all_mmap_entries(&current->supplemental_page_table, munmap_spt_action_function, &data);
 }
 
 /* Sets up the CPU for running user code in the current
