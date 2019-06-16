@@ -1,16 +1,16 @@
-       	       	    +---------------------------+
-		    |         ProgOS		|
+       	    +---------------------------+
+		    |         ProgOS		    |
 		    | PROJECT 2: VIRTUAL MEMORY	|
-		    |	   DESIGN DOCUMENT	|
+		    |	   DESIGN DOCUMENT  	|
 		    +---------------------------+
 
 ---- GROUP ----
 
 >> Fill in the names and email addresses of your group members.
 
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
+Stefan Geyer <stefan.geyer@student.tuwien.ac.at>
+Markus Hinterleitner <e01631852@student.tuwien.ac.at>
+Rene Hollander <rene.hollander@tuwien.ac.at>
 
 ---- PRELIMINARIES ----
 
@@ -29,14 +29,72 @@ FirstName LastName <email@domain.example>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+enum spte_type {
+  SPTE_TYPE_FILE = 1,
+  SPTE_TYPE_MEMORY_MAPPED_FILE = 2,
+};
+
+Used in spte struct
+
+struct spte {
+  void *vaddr;
+  bool loaded;
+  struct file *file;
+  off_t offset;
+  enum spte_type type;
+  union {
+    struct {
+      uint32_t read_bytes;
+      uint32_t zero_bytes;
+      bool writable;
+    } file_data;
+    struct {
+      int id;
+      off_t length;
+    } memory_mapped_file_data;
+  };
+
+  struct hash_elem elem;
+  struct list_elem remove_elem;
+};
+
+Struct that represents a supplemental page table entry.
+Supports both executable and mmap entries.
+
+typedef int spt_action_func (struct spte *e, void *aux);
+
+Function definition used for table iterating
+
+struct thread
+  {
+    ...
+    struct hash supplemental_page_table;
+
+    int mmapid_counter;
+    int stack_size;                     /* Current size of the stack. */
+    void *saved_esp;                    /* Saved esp when switching from user to kernel. */
+    ...
+  };
+
 ---- IMPLEMENTATION ----
 >> A2: Describe how you implemented lazy page loading. How do you
 >> determine the file and file offset corresponding to a virtual
 >> address?
 
+The supplemental page table gets setup in load_segment with the correct offsets in the file.
+As soon as a page fault occurs, a hashtable will be checked to get the right entry. If no
+such entry exists, a segfault will be triggered. The offset and file in the supplemental page
+table entry will be used to load the data into a new page. The page will be installed and the
+program resumes.
+
 ---- SYNCHRONIZATION ----
 >> A3: How do you deal with or prevent page faults in file system
 >> routines. Argue why your solution is deadlock free.
+
+As the current read and write syscall implementations first copy the user data to a newly
+allocated page, or into a kernel page and then to the user buffer, all page faults occur
+outside of the file system code. This way not deadlocks can occur, as the copying can is
+not done inside of a critical section that is related to the file system code.
 
 
 			    STACK GROWTH
@@ -48,14 +106,31 @@ FirstName LastName <email@domain.example>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+struct thread {
+  ...
+  int stack_size;                     /* Current size of the stack. */
+  void *saved_esp;                    /* Saved esp when switching from user to kernel. */
+  ...
+stack_size is used to detect overlaps with a mmap call. saved_esp is set to the esp of
+the user stack when switching to kernel code.
+
 ---- IMPLEMENTATION ----
 >> B2: Describe how you integrated the (potentially growing) stack segment
 >> into your page table management implementation.
+
+If the conditions below hold, a new page will be allocated and installed to be used for stack data. The
+stack_size will be increased accordingly. The entry is not added to the supplemental page table as it
+is not needed.
 
 ---- ALGORITHMS ----
 >> B3: Explain how you detect a page fault which should trigger a
 >> stack growth. What asssumptions are needed for your implementation
 >> to work?
+
+The page fault handler checks if the fault address is 4 or 32 bytes after the esp or bigger then esp and
+smaller than PHYS_BASE. To avoid growing the stack too large, it is limited to 8MB. ESP is read from the
+interrupt frame when the fault occured in user code, or from the threads saved_esp when it occurs in kernel
+code.
 
 			 MEMORY MAPPED FILES
 			 ===================
@@ -66,13 +141,31 @@ FirstName LastName <email@domain.example>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+struct munmap_action_data {
+  uint32_t *pagedir;
+  struct list *to_remove;
+  struct file *to_close;
+};
+
+Maps together the data for each mmap mapping
+
 ---- ALGORITHMS ----
 
 >> C2: Describe how memory mapped files integrate into your virtual
 >> memory subsystem.
 
+Add mmap and munmap hooks for the syscall handler and add the custom implementation there.
+Perform all the checks mentioned in the task description. Get the file length and check how
+many entries are to be added. If the file's size is 5 * PGSIZE, 5 entries should be added with
+the correct offset. The last entry might have a smaller size if the file size ist not dividable
+by PGSIZE. The mapping id is generated using a variable in the thread struct which is incremented
+on each access.
+
 >> C3: Explain how you determine whether a new file mapping overlaps
 >> any existing segment.
+
+Before adding the mappings perform an iterative check for each page that would be mapped for the file
+and make sure there is no page mapped at this address already. If there are none the file may be mapped.
 
 ---- RATIONALE ----
 
@@ -82,6 +175,9 @@ FirstName LastName <email@domain.example>
 >> that much of their implementation can be shared.  Explain why your
 >> implementation either does or does not share much of the code for
 >> the two situations.
+
+We use the same SPT struct for both mmap and executable mappings.
+Therefore a lot of code can be shared for segments such as lazy loading.
 
 			   SURVEY QUESTIONS
 			   ================
