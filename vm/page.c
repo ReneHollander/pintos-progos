@@ -85,6 +85,18 @@ void spt_iterate_memory_mapped_file_entries (struct hash *table, int id, spt_act
   }
 }
 
+void spt_iterate_all_mmap_entries (struct hash *table, spt_action_func func, void *aux)
+{
+    struct hash_iterator i;
+    hash_first (&i, table);
+    while (hash_next (&i)) {
+        struct spte *e = hash_entry (hash_cur(&i), struct spte, elem);
+        if (e->type == SPTE_TYPE_MEMORY_MAPPED_FILE) {
+            func(e, aux);
+        }
+    }
+}
+
 struct spte *spt_remove (struct hash *table, void *vaddr)
 {
   struct spte *e = spt_get (table, vaddr);
