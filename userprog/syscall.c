@@ -1,7 +1,6 @@
 #include <stdio.h>
-#include <syscall-nr.h>
-#include <threads/malloc.h>
-#include <vm/page.h>
+#include "syscall-nr.h"
+#include "threads/malloc.h"
 #include "devices/input.h"
 #include "devices/shutdown.h"
 #include "filesys/file.h"
@@ -16,7 +15,9 @@
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
 #include "userprog/syscall.h"
+#ifdef VM
 #include "vm/page.h"
+#endif
 
 #define STACK_SLOT_SIZE sizeof(int)
 
@@ -181,9 +182,12 @@ static handler
   syscall_read,
   syscall_seek,
   syscall_tell,
-  syscall_close,
+  syscall_close;
+#ifdef VM
+static handler
   syscall_mmap,
   syscall_munmap;
+#endif
 
 /* Register syscall_handler for interrupt 0x30 */
 void
@@ -201,7 +205,9 @@ syscall_handler (struct intr_frame *f)
   bool segfault = false;
   int result;
   void *sp = f->esp;
+#ifdef VM
   thread_current ()->saved_esp = sp;
+#endif
 
   /* The system call number and the arguments are on the stack */
   if (! copy_from_user (&syscall_nr,sp))

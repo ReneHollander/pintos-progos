@@ -5,13 +5,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <userprog/pagedir.h>
-#include <threads/palloc.h>
-#include <threads/vaddr.h>
-#include <threads/thread.h>
+#include "userprog/pagedir.h"
+#include "threads/palloc.h"
+#include "threads/vaddr.h"
+#include "threads/thread.h"
 #include "kernel/hash.h"
 #include "threads/malloc.h"
 #include "userprog/process.h"
+
+#ifdef VM
 
 static unsigned spt_hash_func (const struct hash_elem *a, __attribute__((unused)) void *aux)
 {
@@ -49,7 +51,7 @@ void spt_add_file_entry (struct hash *table, void *vaddr,
 }
 
 void spt_add_memory_mapped_file_entry (struct hash *table, void *vaddr,
-    struct file *file, off_t ofs, int id, uint32_t length)
+    struct file *file, off_t ofs, int id, off_t length)
 {
   struct spte *e = malloc (sizeof (struct spte));
   e->vaddr = vaddr;
@@ -199,3 +201,5 @@ bool load_page(void *addr) {
     /* loading successful */
     return true;
 }
+
+#endif

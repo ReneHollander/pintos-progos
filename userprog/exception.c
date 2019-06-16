@@ -1,17 +1,22 @@
 #include "userprog/exception.h"
 #include <inttypes.h>
 #include <stdio.h>
-#include <filesys/file.h>
 #include <string.h>
-#include <vm/page.h>
+
+#include "filesys/file.h"
 #include "userprog/gdt.h"
+#include "userprog/process.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/palloc.h"
 #include "pagedir.h"
 
+#ifdef VM
+#include "vm/page.h"
 #define MAX_STACK_SIZE (8 * 1024 * 1024)
+#endif
+
 #define PRINT_PAGEFAULTS (false)
 
 /* Number of page faults processed. */
@@ -21,7 +26,6 @@ static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
 static void handle_fault(struct intr_frame *f, void *fault_addr, bool not_present, bool write, bool user);
 static void handle_paging_error (struct intr_frame *f, void *fault_addr, bool not_present, bool write, bool user);
-bool load_page(void *addr);
 
 /* Registers handlers for interrupts that can be caused by user
    programs.
@@ -194,10 +198,9 @@ handle_fault(struct intr_frame *f, void *fault_addr, bool not_present, bool writ
 
     /* success */
     return;
-#endif
 
     paging_error:
-
+#endif
     if (!user) {
         /* syscall exception; set eax and eip */
         f->eip = (void*)f->eax;

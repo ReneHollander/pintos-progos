@@ -1,5 +1,6 @@
 #ifndef VM_PAGE_H
 #define VM_PAGE_H
+#ifdef VM
 
 #include <stddef.h>
 #include <stdbool.h>
@@ -25,7 +26,7 @@ struct spte {
     } file_data;
     struct {
       int id;
-      uint32_t length;
+      off_t length;
     } memory_mapped_file_data;
   };
 
@@ -41,7 +42,7 @@ void spt_add_file_entry (struct hash *table, void *vaddr,
         struct file *file, off_t ofs, uint32_t read_bytes, uint32_t zero_bytes, bool writable);
 
 void spt_add_memory_mapped_file_entry (struct hash *table, void *vaddr,
-        struct file *file, off_t ofs, int id, uint32_t length);
+        struct file *file, off_t ofs, int id, off_t length);
 
 struct spte *spt_get (struct hash *table, void *vaddr);
 
@@ -63,4 +64,5 @@ int munmap_spt_action_function (struct spte *e, void *aux);
 
 bool load_page(void *addr);
 
+#endif
 #endif /* vm/page.h */
