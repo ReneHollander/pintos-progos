@@ -23,6 +23,13 @@ Rene Hollander <rene.hollander@tuwien.ac.at>
 
 			PAGE TABLE MANAGEMENT
 			=====================
+!!!! DISCLAIMER !!!!
+
+syn-read and syn-write tests are failing for unknown reasons. Some threads that are started by the
+parent cause a pagefault with fault address 0x00. Debugging this is extremly hard, as gdb won't
+show the full backtrace and printfs are not shown as the process is a child process. Reducing
+the size of the threads that are created to 2 for each test makes them pass.
+
 ---- DATA STRUCTURES ----
 
 >> A1: Copy here the declaration of each new or changed `struct' or
