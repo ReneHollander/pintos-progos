@@ -620,6 +620,11 @@ syscall_mmap (void *sp, bool *segfault)
     return -1;
   }
 
+  // Check if end of mmaped file would overlap with stack segment.
+  if (addr + len > PHYS_BASE - current->stack_size) {
+    return -1;
+  }
+
   // make sure there is enough space for the file at the give address
   for (offset = 0; offset < len; offset += PGSIZE)
   {
