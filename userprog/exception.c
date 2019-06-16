@@ -166,15 +166,6 @@ page_fault (struct intr_frame *f)
 
 static void
 handle_fault(struct intr_frame *f, void *fault_addr, bool not_present, bool write, bool user) {
-    if (is_user_vaddr(fault_addr)) {
-        if (! user) {
-            /* syscall exception; set eax and eip */
-            f->eip = (void*)f->eax;
-            f->eax = 0xFFFFFFFF;
-            return;
-        }
-    }
-
     /* access violation -> terminate */
     if(!not_present) {
         handle_paging_error(f, fault_addr, not_present, write, user);
@@ -185,7 +176,7 @@ handle_fault(struct intr_frame *f, void *fault_addr, bool not_present, bool writ
     void *fault_page = pg_round_down(fault_addr);
     struct spte *spte = spt_get(&curr->supplemental_page_table, fault_page);
 
-    if (fault_addr < PHYS_BASE && fault_addr > PHYS_BASE - curr->stack_size - PGSIZE) {
+    if (user && fault_addr < PHYS_BASE && fault_addr > PHYS_BASE - curr->stack_size - PGSIZE) {
       uint8_t *kpage = palloc_get_page (PAL_USER);
       if (kpage == NULL){
         handle_paging_error(f, fault_addr, not_present, write, user);
@@ -199,7 +190,7 @@ handle_fault(struct intr_frame *f, void *fault_addr, bool not_present, bool writ
     }
 
     if(spte == NULL){
-        handle_paging_error(f, fault_addr, not_present, write, user);
+        goto paging_error;
     }
 
     if(spte->type == SPTE_TYPE_MEMORY_MAPPED_FILE){
@@ -209,12 +200,20 @@ handle_fault(struct intr_frame *f, void *fault_addr, bool not_present, bool writ
     } else {
         handle_paging_error(f, fault_addr, not_present, write, user);
     }
-
+    /* success */
+    return;
 #endif
 
-#ifndef VM
+    paging_error:
+
+    if (!user) {
+        /* syscall exception; set eax and eip */
+        f->eip = (void*)f->eax;
+        f->eax = 0xFFFFFFFF;
+        return;
+    }
+
     handle_paging_error(f, fault_addr, not_present, write, user);
-#endif
 }
 
 static void
@@ -274,12 +273,6 @@ handle_mmap_fault(struct spte *spte, struct intr_frame *f, void *fault_addr,
 
 static void
 handle_paging_error(struct intr_frame *f, void *fault_addr, bool not_present, bool write, bool user) {
-    printf("Page fault at %p: %s error %s page in %s context.\n",
-           fault_addr,
-           not_present ? "not present" : "rights violation",
-           write ? "writing" : "reading",
-           user ? "user" : "kernel");
-
     if(is_user_vaddr(fault_addr)) {
         thread_exit();
     } else {
