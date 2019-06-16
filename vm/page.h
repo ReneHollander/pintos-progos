@@ -61,4 +61,6 @@ struct munmap_action_data {
 
 int munmap_spt_action_function (struct spte *e, void *aux);
 
+bool load_page(void *addr);
+
 #endif /* vm/page.h */

@@ -7,8 +7,11 @@
 #include <string.h>
 #include <userprog/pagedir.h>
 #include <threads/palloc.h>
+#include <threads/vaddr.h>
+#include <threads/thread.h>
 #include "kernel/hash.h"
 #include "threads/malloc.h"
+#include "userprog/process.h"
 
 static unsigned spt_hash_func (const struct hash_elem *a, __attribute__((unused)) void *aux)
 {
@@ -144,4 +147,55 @@ int munmap_spt_action_function (struct spte *e, void *aux)
   }
 
   return 0;
+}
+
+bool load_page(void *addr) {
+    void *upage = pg_round_down(addr);
+    struct thread *curr = thread_current ();
+
+    /* Lookup page in spt */
+    struct spte *spte = spt_get(&curr->supplemental_page_table, upage);
+    if(spte == NULL){
+        return false;
+    }
+
+    /* Get a page of memory. */
+    uint8_t *kpage = palloc_get_page (PAL_USER);
+    if (kpage == NULL){
+        return false;
+    }
+
+    uint32_t read_length = 0;
+    bool writable = false;
+
+    if(spte->type == SPTE_TYPE_MEMORY_MAPPED_FILE){
+        read_length = spte->memory_mapped_file_data.length;
+        writable = true;
+    } else if(spte->type == SPTE_TYPE_FILE){
+        read_length = spte->file_data.read_bytes;
+        writable = spte->file_data.writable;
+    } else {
+        return false;
+    }
+
+    /* Load data into page. */
+    if (file_read_at (spte->file, kpage, read_length, spte->offset) != (int) read_length) {
+        palloc_free_page (kpage);
+        return false;
+    }
+
+    if(spte->type == SPTE_TYPE_FILE) {
+        memset(kpage + spte->file_data.read_bytes, 0, spte->file_data.zero_bytes);
+    }
+
+    /* Map the user page to the allocated kernel page */
+    if (!install_page (upage, kpage, writable)) {
+        palloc_free_page (kpage);
+        return false;
+    }
+
+    spte->loaded = true;
+
+    /* loading successful */
+    return true;
 }

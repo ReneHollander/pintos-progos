@@ -1,5 +1,4 @@
 #include "userprog/exception.h"
-#include "userprog/process.h"
 #include <inttypes.h>
 #include <stdio.h>
 #include <filesys/file.h>
@@ -22,8 +21,7 @@ static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
 static void handle_fault(struct intr_frame *f, void *fault_addr, bool not_present, bool write, bool user);
 static void handle_paging_error (struct intr_frame *f, void *fault_addr, bool not_present, bool write, bool user);
-static void handle_file_fault (struct spte *spte, struct intr_frame *f, void *fault_addr, bool not_present, bool write, bool user, void *fault_page);
-static void handle_mmap_fault (struct spte *spte, struct intr_frame *f, void *fault_addr, bool not_present, bool write, bool user, void *fault_page);
+bool load_page(void *addr);
 
 /* Registers handlers for interrupts that can be caused by user
    programs.
@@ -175,7 +173,6 @@ handle_fault(struct intr_frame *f, void *fault_addr, bool not_present, bool writ
 #ifdef VM
     struct thread *curr = thread_current ();
     void *fault_page = pg_round_down(fault_addr);
-    struct spte *spte = spt_get(&curr->supplemental_page_table, fault_page);
 
     void *esp = user ? f->esp : curr->saved_esp;
     if (fault_addr < PHYS_BASE && PHYS_BASE - MAX_STACK_SIZE < fault_addr && (esp <= fault_addr || fault_addr == esp - 4 || fault_addr == esp - 32)) {
@@ -191,19 +188,10 @@ handle_fault(struct intr_frame *f, void *fault_addr, bool not_present, bool writ
       return;
     }
 
-    if(spte == NULL){
+    if(! load_page(fault_addr)) {
         goto paging_error;
     }
 
-    if(spte->type == SPTE_TYPE_MEMORY_MAPPED_FILE){
-        handle_mmap_fault(spte, f, fault_addr, not_present, write, user, fault_page);
-    } else if(spte->type == SPTE_TYPE_FILE){
-        handle_file_fault(spte, f, fault_addr, not_present, write, user, fault_page);
-    } else {
-        handle_paging_error(f, fault_addr, not_present, write, user);
-    }
-
-    spte->loaded = true;
     /* success */
     return;
 #endif
@@ -218,59 +206,6 @@ handle_fault(struct intr_frame *f, void *fault_addr, bool not_present, bool writ
     }
 
     handle_paging_error(f, fault_addr, not_present, write, user);
-}
-
-static void
-handle_file_fault(struct spte *spte, struct intr_frame *f, void *fault_addr, bool not_present, bool write, bool user, void *fault_page){
-    uint32_t read_length = 0;
-    bool writable;
-
-    read_length = spte->file_data.read_bytes;
-    writable = spte->file_data.writable;
-
-    /* Get a page of memory. */
-    uint8_t *kpage = palloc_get_page (PAL_USER);
-    if (kpage == NULL){
-        handle_paging_error(f, fault_addr, not_present, write, user);
-    }
-
-    /* Load data into page. */
-    if (file_read_at (spte->file, kpage, read_length, spte->offset) != (int) read_length) {
-        palloc_free_page (kpage);
-        handle_paging_error(f, fault_addr, not_present, write, user);
-    }
-    memset (kpage + spte->file_data.read_bytes, 0, spte->file_data.zero_bytes);
-
-    /* Add the page to the process's address space. */
-    if (!install_page (fault_page, kpage, writable)) {
-        palloc_free_page (kpage);
-        handle_paging_error(f, fault_addr, not_present, write, user);
-    }
-}
-
-static void
-handle_mmap_fault(struct spte *spte, struct intr_frame *f, void *fault_addr, bool not_present, bool write, bool user, void *fault_page){
-    uint32_t read_length = 0;
-    bool writable = true;
-    read_length = spte->memory_mapped_file_data.length;
-
-    /* Get a page of memory. */
-    uint8_t *kpage = palloc_get_page (PAL_USER);
-    if (kpage == NULL){
-        handle_paging_error(f, fault_addr, not_present, write, user);
-    }
-
-    /* Load data into page. */
-    if (file_read_at (spte->file, kpage, read_length, spte->offset) != (int) read_length) {
-        palloc_free_page (kpage);
-        handle_paging_error(f, fault_addr, not_present, write, user);
-    }
-
-    /* Add the page to the process's address space. */
-    if (!install_page (fault_page, kpage, writable)) {
-        palloc_free_page (kpage);
-        handle_paging_error(f, fault_addr, not_present, write, user);
-    }
 }
 
 static void
